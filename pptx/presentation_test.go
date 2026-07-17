@@ -397,6 +397,36 @@ func TestAddImageFromBytes_NonImageDataAccumulatesError(t *testing.T) {
 	}
 }
 
+func TestAddImageFromBytes_NilOrEmptyDataAccumulatesError(t *testing.T) {
+	// A nil/empty byte slice must record an error, not silently emit a
+	// p:pic with no p:blipFill (which CT_Picture forbids) that Save would
+	// then happily write as a schema-invalid file.
+	for _, tc := range []struct {
+		name string
+		data []byte
+	}{
+		{"nil", nil},
+		{"empty", []byte{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := New()
+			s := p.AddSlide()
+			s.AddImageFromBytes(tc.data, Inches(1), Inches(1))
+			if err := p.Save(&bytes.Buffer{}); err == nil {
+				t.Fatalf("expected Save to error for %s image data", tc.name)
+			}
+		})
+	}
+
+	// The WithSize variant takes the same guard.
+	p := New()
+	s := p.AddSlide()
+	s.AddImageFromBytesWithSize(nil, Inches(1), Inches(1), Inches(2), Inches(2))
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to error for nil image data (WithSize)")
+	}
+}
+
 func TestAddImageFromBytesWithSize_ExplicitZeroSizeIsPreserved(t *testing.T) {
 	p := New()
 	s := p.AddSlide()

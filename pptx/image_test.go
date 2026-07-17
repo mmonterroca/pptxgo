@@ -180,7 +180,37 @@ func TestJpegOrientation_DefaultsWhenAbsent(t *testing.T) {
 	}
 }
 
-func TestImageMeta_JPEG_SwapsDimensionsForRotatedOrientation(t *testing.T) {
+func TestJpegOrientation_ToleratesFillBytesBeforeMarker(t *testing.T) {
+	// The JFIF spec allows any number of 0xFF pad bytes before a marker.
+	// Splice three extra 0xFF fill bytes in right after the SOI (where
+	// withExifOrientation places the APP1/EXIF segment); a parser that
+	// assumes exactly one 0xFF before the marker code would desync here and
+	// miss the orientation tag.
+	jpg := withExifOrientation(t, encodeJPEG(t, 64, 48), 6)
+	padded := append([]byte{}, jpg[:2]...)    // SOI
+	padded = append(padded, 0xFF, 0xFF, 0xFF) // fill bytes
+	padded = append(padded, jpg[2:]...)       // APP1 (EXIF) + rest
+
+	if got := jpegOrientation(padded); got != 6 {
+		t.Errorf("got orientation %d, want 6 despite leading fill bytes", got)
+	}
+}
+
+func TestImageMeta_ReportsStoredPixelGridUnchanged(t *testing.T) {
+	// imageMeta itself never applies EXIF: it always reports the stored
+	// pixel grid, even for a rotate-90 orientation. (prepareImage is what
+	// physically rotates; see TestPrepareImage_* below.)
+	data := withExifOrientation(t, encodeJPEG(t, 64, 48), 6)
+	w, h, _, _, err := imageMeta(data)
+	if err != nil {
+		t.Fatalf("imageMeta: %v", err)
+	}
+	if w != 64 || h != 48 {
+		t.Errorf("got %dx%d, want the stored 64x48 grid unchanged", w, h)
+	}
+}
+
+func TestPrepareImage_RotatesPixelsAndDimensionsForExifOrientation(t *testing.T) {
 	base := encodeJPEG(t, 64, 48) // landscape pixel grid
 
 	cases := []struct {
@@ -188,12 +218,14 @@ func TestImageMeta_JPEG_SwapsDimensionsForRotatedOrientation(t *testing.T) {
 		orientation uint16
 		wantW       int
 		wantH       int
+		reencoded   bool
 	}{
-		{"no EXIF", 0, 64, 48}, // 0 signals "don't inject a tag" below
-		{"upright(1)", 1, 64, 48},
-		{"flip(4)", 4, 64, 48},
-		{"rotate90(6)", 6, 48, 64},
-		{"rotate270(8)", 8, 48, 64},
+		{"no EXIF", 0, 64, 48, false},
+		{"upright(1)", 1, 64, 48, false},
+		{"flip-h(2)", 2, 64, 48, true},
+		{"rotate180(3)", 3, 64, 48, true},
+		{"rotate90(6)", 6, 48, 64, true},
+		{"rotate270(8)", 8, 48, 64, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -201,14 +233,52 @@ func TestImageMeta_JPEG_SwapsDimensionsForRotatedOrientation(t *testing.T) {
 			if tc.orientation != 0 {
 				data = withExifOrientation(t, base, tc.orientation)
 			}
-			w, h, _, _, err := imageMeta(data)
+			out, w, h, _, ext, err := prepareImage(data)
 			if err != nil {
-				t.Fatalf("imageMeta: %v", err)
+				t.Fatalf("prepareImage: %v", err)
+			}
+			if ext != "jpeg" {
+				t.Fatalf("got ext %q, want jpeg", ext)
 			}
 			if w != tc.wantW || h != tc.wantH {
-				t.Errorf("got %dx%d, want %dx%d", w, h, tc.wantW, tc.wantH)
+				t.Errorf("reported %dx%d, want %dx%d", w, h, tc.wantW, tc.wantH)
+			}
+			// The returned bytes must actually decode to those dimensions —
+			// this is what proves the pixels were rotated, not just the
+			// numbers swapped.
+			cfg, _, decErr := image.DecodeConfig(bytes.NewReader(out))
+			if decErr != nil {
+				t.Fatalf("prepared bytes don't decode: %v", decErr)
+			}
+			if cfg.Width != tc.wantW || cfg.Height != tc.wantH {
+				t.Errorf("prepared bytes decode to %dx%d, want %dx%d", cfg.Width, cfg.Height, tc.wantW, tc.wantH)
+			}
+			// An orientation that needs no correction must pass the original
+			// bytes through untouched (no lossy re-encode).
+			if !tc.reencoded && &out[0] != &data[0] {
+				t.Errorf("expected the original bytes passed through untouched for %s", tc.name)
 			}
 		})
+	}
+}
+
+func TestApplyExifOrientation_Rotate90MovesTopLeftPixel(t *testing.T) {
+	// A 2x1 image: (0,0) red, (1,0) green. Under orientation 6 (rotate 90
+	// CW) it becomes 1x2, and the original top-left red pixel lands at the
+	// top — verifying the transform's direction, not just its dimensions.
+	src := image.NewRGBA(image.Rect(0, 0, 2, 1))
+	red := color.RGBA{R: 255, A: 255}
+	green := color.RGBA{G: 255, A: 255}
+	src.Set(0, 0, red)
+	src.Set(1, 0, green)
+
+	dst := applyExifOrientation(src, 6)
+	b := dst.Bounds()
+	if b.Dx() != 1 || b.Dy() != 2 {
+		t.Fatalf("got %dx%d, want 1x2", b.Dx(), b.Dy())
+	}
+	if r, _, _, _ := dst.At(0, 0).RGBA(); r>>8 != 255 {
+		t.Errorf("expected the original top-left (red) pixel at the top after 90 CW rotation")
 	}
 }
 

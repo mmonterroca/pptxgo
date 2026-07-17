@@ -21,6 +21,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `AddImageFromBytesWithSize` to embed PNG/JPEG/GIF images as `p:pic`, with
   automatic format and pixel-dimension detection (via `image.DecodeConfig`,
   no new dependency) and 96 DPI auto-sizing when no explicit size is given.
+  A JPEG with an EXIF orientation tag is physically rotated/flipped upright
+  before embedding (OOXML consumers ignore EXIF and render the stored pixel
+  grid), so camera photos display correctly and undistorted.
 - `TextBox.Fill`/`TextBox.Border` and `PictureRef.Border` for a solid shape
   background and outline (`a:solidFill`/`a:ln`) on text boxes and images.
 - `drawingml.Ln` (`a:ln`) for solid-color shape/picture outlines.

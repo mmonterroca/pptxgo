@@ -37,28 +37,37 @@ const exifOrientationDefault = 1
 // EXIF metadata (or a synthetic, non-camera JPEG, like the ones this
 // package's own tests generate) is common and entirely valid.
 //
-// image.DecodeConfig, which imageMeta otherwise relies on for pixel
-// dimensions, reports the physical pixel grid only — it has no notion of
-// EXIF's Orientation tag, so a photo shot in portrait but stored with its
-// sensor's native (often landscape) pixel grid decodes with width and
-// height swapped relative to how it displays. Orientations 5-8 (partly a
-// 90/270-degree rotation) need that swap applied to the dimensions pptxgo
-// hands to PowerPoint; 1-4 (identity or a simple flip) don't.
+// prepareImage uses this to decide whether to physically rotate/flip a
+// JPEG's pixels before embedding it: OOXML consumers render an embedded
+// blip from its stored pixel grid and ignore EXIF orientation, so a photo
+// shot in portrait but stored on its sensor's native (often landscape)
+// grid would display sideways unless the rotation is baked into the pixels.
 func jpegOrientation(data []byte) int {
 	if len(data) < 4 || data[0] != 0xFF || data[1] != 0xD8 {
 		return exifOrientationDefault
 	}
 
 	i := 2
-	for i+4 <= len(data) {
+	for i+1 < len(data) {
 		if data[i] != 0xFF {
 			return exifOrientationDefault
 		}
-		marker := data[i+1]
+		// A marker is one or more 0xFF fill bytes followed by a single
+		// non-0xFF marker code; the JFIF spec permits any number of 0xFF
+		// pad bytes before a marker, so skip the whole fill run rather than
+		// assuming exactly one 0xFF (which would misread a pad byte as the
+		// marker code and desync the segment walk).
+		for i < len(data) && data[i] == 0xFF {
+			i++
+		}
+		if i >= len(data) {
+			return exifOrientationDefault
+		}
+		marker := data[i]
+		i++ // i now points just past the marker code
 
-		// Markers with no payload: standalone RST0-RST7 and SOI/EOI.
-		if marker == 0xD8 || marker == 0xD9 || (marker >= 0xD0 && marker <= 0xD7) {
-			i += 2
+		// Markers with no payload: standalone RST0-RST7, SOI/EOI, TEM.
+		if marker == 0xD8 || marker == 0xD9 || (marker >= 0xD0 && marker <= 0xD7) || marker == 0x01 {
 			continue
 		}
 		// Start of scan: image data follows: no more metadata markers.
@@ -66,19 +75,22 @@ func jpegOrientation(data []byte) int {
 			return exifOrientationDefault
 		}
 
-		segLen := int(data[i+2])<<8 | int(data[i+3])
-		if segLen < 2 || i+2+segLen > len(data) {
+		if i+2 > len(data) {
 			return exifOrientationDefault
 		}
-		payload := data[i+4 : i+2+segLen]
+		segLen := int(data[i])<<8 | int(data[i+1])
+		if segLen < 2 || i+segLen > len(data) {
+			return exifOrientationDefault
+		}
+		payload := data[i+2 : i+segLen]
 
-		if marker == 0xE1 && len(payload) > 6 && string(payload[:6]) == "Exif\x00\x00" {
+		if marker == 0xE1 && len(payload) >= 6 && string(payload[:6]) == "Exif\x00\x00" {
 			if o := parseExifOrientation(payload[6:]); o != 0 {
 				return o
 			}
 			return exifOrientationDefault
 		}
-		i += 2 + segLen
+		i += segLen
 	}
 	return exifOrientationDefault
 }
