@@ -236,6 +236,34 @@ func TestPackage_ExtensionlessMediaStillGetsContentType(t *testing.T) {
 	}
 }
 
+func TestPackage_AddMediaPartConflictingContentTypeGetsOverride(t *testing.T) {
+	// Two media parts sharing an extension but declaring different content
+	// types must not both hide behind the first one's Default — the second
+	// needs its own Override, or Office resolves it to the wrong type.
+	pkg := NewPackage()
+	pkg.AddMediaPart("ppt/media/image1.png", ContentTypePNG, []byte{1})
+	pkg.AddMediaPart("ppt/media/image2.png", "image/custom", []byte{2})
+
+	var buf bytes.Buffer
+	if err := pkg.Write(&buf); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	ct := string(zipFiles(t, buf.Bytes())[PathContentTypes])
+
+	if !strings.Contains(ct, `Extension="png" ContentType="image/png"`) {
+		t.Errorf("expected the first-registered png Default to stay image/png: %s", ct)
+	}
+	if !strings.Contains(ct, `PartName="/ppt/media/image2.png" ContentType="image/custom"`) {
+		t.Errorf("expected image2.png to get its own Override for the conflicting type: %s", ct)
+	}
+}
+
+func TestNormalizePartPath_ConvertsBackslashes(t *testing.T) {
+	if got, want := normalizePartPath(`ppt\media\image1.png`), "ppt/media/image1.png"; got != want {
+		t.Errorf("normalizePartPath(backslash path) = %q, want %q", got, want)
+	}
+}
+
 func TestPart_NotFoundVsFound(t *testing.T) {
 	pkg := NewPackage()
 	pkg.AddPart("ppt/presentation.xml", "application/vnd.example.presentation+xml", &stubValue{})

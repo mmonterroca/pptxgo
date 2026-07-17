@@ -101,6 +101,9 @@ func normalizeTargetMode(mode string) string {
 	if strings.EqualFold(mode, "internal") || mode == "" {
 		return ""
 	}
+	if strings.EqualFold(mode, "external") {
+		return "External"
+	}
 	return mode
 }
 
@@ -170,9 +173,14 @@ func (rm *RelationshipManager) sortedLocked() []*Relationship {
 func relIDLess(a, b string) bool {
 	na, erra := strconv.ParseUint(strings.TrimPrefix(strings.ToLower(a), "rid"), 10, 64)
 	nb, errb := strconv.ParseUint(strings.TrimPrefix(strings.ToLower(b), "rid"), 10, 64)
-	if erra == nil && errb == nil {
+	if erra == nil && errb == nil && na != nb {
 		return na < nb
 	}
+	// Falls through here whenever the numeric parts tie but the strings
+	// don't (e.g. "rId1" vs "rId01", or two non-numeric IDs) — a comparator
+	// that reports neither Less(a,b) nor Less(b,a) makes sort.Slice, which
+	// is NOT a stable sort, free to order those elements differently across
+	// calls. Comparing the raw strings breaks the tie deterministically.
 	return a < b
 }
 

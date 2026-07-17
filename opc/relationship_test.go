@@ -60,6 +60,38 @@ func TestRelationshipManager_InternalTargetModeOmitted(t *testing.T) {
 	}
 }
 
+func TestRelationshipManager_ExternalTargetModeCaseCanonicalized(t *testing.T) {
+	// The OPC schema's TargetMode enum is case-sensitive ("External", not
+	// "external" or "EXTERNAL"); a caller passing a differently-cased
+	// variant must still get the one value Office accepts.
+	for _, mode := range []string{"external", "EXTERNAL", "External", "eXternal"} {
+		rm := NewRelationshipManager()
+		id, err := rm.Add("http://example.com/rel/thing", "target", mode)
+		if err != nil {
+			t.Fatalf("Add(%q): %v", mode, err)
+		}
+		rel, err := rm.Get(id)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		if rel.TargetMode != "External" {
+			t.Errorf("Add(mode=%q): TargetMode = %q, want \"External\"", mode, rel.TargetMode)
+		}
+	}
+}
+
+func TestRelIDLess_TiedNumericValueFallsBackToStringOrder(t *testing.T) {
+	// "rId1" and "rId01" parse to the same number; a comparator that treats
+	// them as equal would leave sort.Slice (an unstable sort) free to order
+	// them differently across calls. The tie must resolve deterministically.
+	if !relIDLess("rId01", "rId1") {
+		t.Error(`relIDLess("rId01", "rId1") = false, want true (string tiebreak)`)
+	}
+	if relIDLess("rId1", "rId01") {
+		t.Error(`relIDLess("rId1", "rId01") = true, want false (string tiebreak)`)
+	}
+}
+
 func TestRelationshipManager_ExternalTargetModePreserved(t *testing.T) {
 	rm := NewRelationshipManager()
 	id, err := rm.AddHyperlink("https://example.com")

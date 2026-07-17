@@ -92,7 +92,12 @@ func (p *Package) IDs() *IDGenerator {
 	return p.ids
 }
 
+// normalizePartPath converts a caller-supplied path into the slash-separated
+// form OPC part paths require inside the ZIP container, regardless of the
+// host OS: backslashes (as filepath.Join produces on Windows) become
+// forward slashes, and any leading slash is trimmed.
 func normalizePartPath(pth string) string {
+	pth = strings.ReplaceAll(pth, `\`, "/")
 	return strings.TrimPrefix(pth, "/")
 }
 
@@ -113,28 +118,31 @@ func (p *Package) AddRawPart(pth, contentType string, raw []byte) *Part {
 }
 
 // AddMediaPart registers a binary media part (an image, typically). When the
-// path has a file extension it is declared via a Content_Types Default for
-// that extension — exactly as Office represents media, so many images of the
-// same type share one entry rather than one Override each. When the path has
-// no extension there is no Default to hang the type on, so the part falls
-// back to a per-part Override; either way its content type is always
-// declared, never silently omitted (which would make Office reject the whole
-// package as corrupt).
+// path has a file extension AND no other part has already claimed that
+// extension for a different content type, it is declared via a
+// Content_Types Default for that extension — exactly as Office represents
+// media, so many images of the same type share one entry rather than one
+// Override each. Otherwise (no extension, or the extension's Default
+// already means something else) the part falls back to a per-part Override.
+// Either way its content type is always declared, never silently omitted or
+// silently misdeclared — both of which Office rejects as corrupt.
 func (p *Package) AddMediaPart(pth, contentType string, data []byte) *Part {
 	pth = normalizePartPath(pth)
 	ext := strings.TrimPrefix(strings.ToLower(path.Ext(pth)), ".")
 
-	hasDefault := ext != ""
-	if hasDefault {
+	coveredByDefault := false
+	if ext != "" {
 		p.mu.Lock()
-		if _, exists := p.defaults[ext]; !exists {
+		if existing, exists := p.defaults[ext]; !exists {
 			p.defaults[ext] = contentType
+			coveredByDefault = true
+		} else if existing == contentType {
+			coveredByDefault = true
 		}
 		p.mu.Unlock()
 	}
 
-	// noOverride only when a Default already covers this part's extension.
-	part := &Part{Path: pth, ContentType: contentType, Raw: data, noOverride: hasDefault}
+	part := &Part{Path: pth, ContentType: contentType, Raw: data, noOverride: coveredByDefault}
 	return p.addPart(part)
 }
 
@@ -196,6 +204,8 @@ func (p *Package) Relationships(ownerPath string) *RelationshipManager {
 // hasRelationships reports whether ownerPath has a non-empty relationship
 // manager, without creating one as a side effect.
 func (p *Package) hasRelationships(ownerPath string) bool {
+	ownerPath = normalizePartPath(ownerPath)
+
 	p.mu.Lock()
 	rm, ok := p.rels[ownerPath]
 	p.mu.Unlock()
