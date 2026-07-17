@@ -76,8 +76,8 @@ func TestRun_TextCarriesSpacePreserve(t *testing.T) {
 
 func TestParagraph_PPrBeforeRuns(t *testing.T) {
 	p := &Paragraph{
-		PPr:  &PPr{Algn: "ctr"},
-		Runs: []*Run{{Text: NewText("hello")}},
+		PPr:     &PPr{Algn: "ctr"},
+		Content: []any{&Run{Text: NewText("hello")}},
 	}
 	got := marshal(t, p)
 
@@ -94,6 +94,27 @@ func TestParagraph_PPrBeforeRuns(t *testing.T) {
 	}
 }
 
+func TestParagraph_InterleavesRunsAndBreaksInOrder(t *testing.T) {
+	p := &Paragraph{
+		Content: []any{
+			&Run{Text: NewText("Line1")},
+			&Br{},
+			&Run{Text: NewText("Line2")},
+		},
+	}
+	got := marshal(t, p)
+
+	line1Idx := strings.Index(got, "Line1")
+	brIdx := strings.Index(got, "<a:br")
+	line2Idx := strings.Index(got, "Line2")
+	if line1Idx == -1 || brIdx == -1 || line2Idx == -1 {
+		t.Fatalf("expected Line1, a:br, and Line2 all present, got %s", got)
+	}
+	if !(line1Idx < brIdx && brIdx < line2Idx) {
+		t.Errorf("expected Line1 < a:br < Line2 order, got %s", got)
+	}
+}
+
 // txBodyHost simulates how a host package (pptx.Shape) embeds TextBody: the
 // element name comes from the field tag, not from TextBody itself.
 type txBodyHost struct {
@@ -106,7 +127,7 @@ func TestTextBody_NameComesFromHostFieldTag(t *testing.T) {
 		BodyPr:   &BodyPr{},
 		LstStyle: &LstStyle{},
 		Paragraphs: []*Paragraph{
-			{Runs: []*Run{{Text: NewText("Quarterly Results")}}},
+			{Content: []any{&Run{Text: NewText("Quarterly Results")}}},
 		},
 	}}
 	got := marshal(t, host)
@@ -131,5 +152,22 @@ func TestTextBody_EmitsOneParagraphWhenCallerAddedNone(t *testing.T) {
 
 	if strings.Count(got, "<a:p>") != 1 {
 		t.Errorf("expected exactly one empty <a:p> fallback, got %s", got)
+	}
+}
+
+func TestTextBody_DefaultsBodyPrWhenCallerLeavesItNil(t *testing.T) {
+	// A caller constructing &TextBody{} directly (bypassing
+	// pptx.Slide.AddTextBox, which always sets BodyPr) must still get a
+	// schema-valid a:bodyPr — CT_TextBody requires it before the paragraph.
+	host := &txBodyHost{TxBody: &TextBody{}}
+	got := marshal(t, host)
+
+	bodyPrIdx := strings.Index(got, "<a:bodyPr")
+	pIdx := strings.Index(got, "<a:p>")
+	if bodyPrIdx == -1 {
+		t.Fatalf("expected a:bodyPr to be defaulted, got %s", got)
+	}
+	if pIdx == -1 || bodyPrIdx > pIdx {
+		t.Errorf("expected a:bodyPr before a:p, got %s", got)
 	}
 }

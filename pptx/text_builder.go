@@ -25,6 +25,9 @@ SOFTWARE.
 package pptx
 
 import (
+	"math"
+	"strings"
+
 	"github.com/mmonterroca/pptxgo/drawingml"
 	"github.com/mmonterroca/pptxgo/pkg/errors"
 )
@@ -46,93 +49,99 @@ func (tb *TextBox) AddParagraph() *Paragraph {
 }
 
 // Paragraph is a handle onto a single a:p, returned by TextBox.AddParagraph.
-// Text starts a new run; the run-formatting methods (Bold, Italic,
-// Underline, FontSize, Font, Color) apply to the most recently started run,
-// so a single paragraph can mix differently-formatted runs by calling Text
-// again in between. Alignment applies to the paragraph as a whole and can
-// be called at any point in the chain.
+// Text starts one or more new runs (a "\n" in the given string splits it
+// into multiple runs with an explicit a:br between them — PowerPoint does
+// not treat a literal newline inside a run's text as a line break). The
+// run-formatting methods (Bold, Italic, Underline, FontSize, Font, Color)
+// apply to every run Text most recently started, so a single paragraph can
+// mix differently-formatted runs by calling Text again in between.
+// Alignment applies to the paragraph as a whole and can be called at any
+// point in the chain.
 type Paragraph struct {
-	pres   *Presentation
-	p      *drawingml.Paragraph
-	curRun *drawingml.Run
+	pres    *Presentation
+	p       *drawingml.Paragraph
+	curRuns []*drawingml.Run
 }
 
-// Text starts a new run of text within the paragraph. Subsequent
-// formatting calls (Bold, Italic, ...) apply to this run until Text is
-// called again.
+// Text starts one or more new runs of text within the paragraph, splitting
+// on "\n" and inserting an a:br between the resulting lines. Subsequent
+// formatting calls (Bold, Italic, ...) apply to every run just started,
+// until Text is called again.
 func (pg *Paragraph) Text(s string) *Paragraph {
-	run := &drawingml.Run{Text: drawingml.NewText(s)}
-	pg.p.Runs = append(pg.p.Runs, run)
-	pg.curRun = run
+	lines := strings.Split(s, "\n")
+	runs := make([]*drawingml.Run, 0, len(lines))
+	for i, line := range lines {
+		if i > 0 {
+			pg.p.Content = append(pg.p.Content, &drawingml.Br{})
+		}
+		run := &drawingml.Run{Text: drawingml.NewText(line)}
+		pg.p.Content = append(pg.p.Content, run)
+		runs = append(runs, run)
+	}
+	pg.curRuns = runs
 	return pg
 }
 
-// rPr returns the run-properties struct for the current run, allocating it
-// on first use. It returns nil if no run has been started yet (Bold and
-// friends called before Text), in which case the formatting call is a
-// no-op rather than a panic.
-func (pg *Paragraph) rPr() *drawingml.RPr {
-	if pg.curRun == nil {
-		return nil
+// eachRPr calls fn with the run-properties struct of every run Text most
+// recently started, allocating each on first use. It calls fn zero times
+// if no run has been started yet (Bold and friends called before Text),
+// in which case the formatting call is a no-op rather than a panic.
+func (pg *Paragraph) eachRPr(fn func(*drawingml.RPr)) {
+	for _, run := range pg.curRuns {
+		if run.RPr == nil {
+			run.RPr = &drawingml.RPr{}
+		}
+		fn(run.RPr)
 	}
-	if pg.curRun.RPr == nil {
-		pg.curRun.RPr = &drawingml.RPr{}
-	}
-	return pg.curRun.RPr
 }
 
-// Bold makes the current run bold.
+// Bold makes the current run(s) bold.
 func (pg *Paragraph) Bold() *Paragraph {
-	if rpr := pg.rPr(); rpr != nil {
-		rpr.B = true
-	}
+	pg.eachRPr(func(rpr *drawingml.RPr) { rpr.B = true })
 	return pg
 }
 
-// Italic makes the current run italic.
+// Italic makes the current run(s) italic.
 func (pg *Paragraph) Italic() *Paragraph {
-	if rpr := pg.rPr(); rpr != nil {
-		rpr.I = true
-	}
+	pg.eachRPr(func(rpr *drawingml.RPr) { rpr.I = true })
 	return pg
 }
 
-// Underline underlines the current run with a single line.
+// Underline underlines the current run(s) with a single line.
 func (pg *Paragraph) Underline() *Paragraph {
-	if rpr := pg.rPr(); rpr != nil {
-		rpr.U = "sng"
-	}
+	pg.eachRPr(func(rpr *drawingml.RPr) { rpr.U = "sng" })
 	return pg
 }
 
-// FontSize sets the current run's font size, in points (1-4000, matching
-// the schema's centipoint range of 100-400000). An out-of-range value is
-// recorded as an error on the presentation (returned by Save) and leaves
-// the run's size unset.
-func (pg *Paragraph) FontSize(points int) *Paragraph {
+// FontSize sets the current run(s)' font size, in points (1-4000, matching
+// the schema's centipoint range of 100-400000; half-points such as 10.5
+// are valid). Formatting calls made before any Text call are a documented
+// no-op — including this validation, so FontSize(5000) before Text does
+// not record an error. An out-of-range value called with a current run
+// present is recorded as an error on the presentation (returned by Save)
+// and leaves the run(s)' size unset.
+func (pg *Paragraph) FontSize(points float64) *Paragraph {
+	if len(pg.curRuns) == 0 {
+		return pg
+	}
 	if points < 1 || points > 4000 {
 		pg.pres.addErr(errors.InvalidArgument("Paragraph.FontSize", "points", points, "must be between 1 and 4000"))
 		return pg
 	}
-	if rpr := pg.rPr(); rpr != nil {
-		rpr.Sz = points * 100
-	}
+	sz := int(math.Round(points * 100))
+	pg.eachRPr(func(rpr *drawingml.RPr) { rpr.Sz = sz })
 	return pg
 }
 
-// Font sets the current run's Latin-script typeface.
+// Font sets the current run(s)' Latin-script typeface.
 func (pg *Paragraph) Font(name string) *Paragraph {
-	if rpr := pg.rPr(); rpr != nil {
-		rpr.Latin = &drawingml.Latin{Typeface: name}
-	}
+	pg.eachRPr(func(rpr *drawingml.RPr) { rpr.Latin = &drawingml.Latin{Typeface: name} })
 	return pg
 }
 
-// Color sets the current run's text color to a solid fill.
+// Color sets the current run(s)' text color to a solid fill.
 func (pg *Paragraph) Color(c drawingml.Color) *Paragraph {
-	if rpr := pg.rPr(); rpr != nil {
-		rpr.SolidFill = drawingml.NewSolidFillRGB(c)
-	}
+	pg.eachRPr(func(rpr *drawingml.RPr) { rpr.SolidFill = drawingml.NewSolidFillRGB(c) })
 	return pg
 }
 

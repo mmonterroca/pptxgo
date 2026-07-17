@@ -45,14 +45,19 @@ type TextBody struct {
 	Paragraphs []*Paragraph `xml:"a:p"`
 }
 
-// MarshalXML fills the schema's "at least one paragraph" requirement
-// (CT_TextBody's p child has minOccurs="1") for a text box the caller never
-// called AddParagraph on: it emits a single empty <a:p/> rather than
-// schema-invalid empty content. A type alias breaks the recursion that
-// would otherwise result from calling back into this same method.
+// MarshalXML fills two schema minimums a caller can otherwise leave unmet
+// by constructing a TextBody directly (bypassing pptx.Slide.AddTextBox,
+// which always sets both): CT_TextBody requires a:bodyPr before anything
+// else, and its p child has minOccurs="1". A bare &TextBody{} therefore
+// still emits a valid <a:bodyPr/> and a single empty <a:p/> rather than
+// schema-invalid missing/empty content. A type alias breaks the recursion
+// that would otherwise result from calling back into this same method.
 func (b *TextBody) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	type alias TextBody
 	out := *b
+	if out.BodyPr == nil {
+		out.BodyPr = &BodyPr{}
+	}
 	if len(out.Paragraphs) == 0 {
 		out.Paragraphs = []*Paragraph{{}}
 	}
@@ -74,11 +79,16 @@ type LstStyle struct {
 }
 
 // Paragraph is a:p (CT_TextParagraph): paragraph-level properties followed
-// by its runs.
+// by its content. Content is left as `any` — like SpTree.Content in the
+// pptx package — because CT_TextParagraph's body is a mixed sequence of
+// r|br|fld elements (runs and explicit line breaks, interleaved in
+// caller-chosen order), which a single typed slice can't represent; each
+// element (*Run, *Br, ...) supplies its own XMLName so `xml:",any"`
+// marshals it correctly regardless of position.
 type Paragraph struct {
 	XMLName xml.Name `xml:"a:p"`
 	PPr     *PPr     `xml:"a:pPr,omitempty"`
-	Runs    []*Run   `xml:"a:r,omitempty"`
+	Content []any    `xml:",any"`
 }
 
 // PPr is a:pPr (CT_TextParagraphProperties): paragraph properties. Only
@@ -107,6 +117,13 @@ type Text struct {
 // NewText returns a Text with xml:space="preserve" already set.
 func NewText(s string) Text {
 	return Text{Space: "preserve", Value: s}
+}
+
+// Br is a:br (CT_TextLineBreak): an explicit line break within a
+// paragraph. PowerPoint does not treat a literal "\n" inside an a:t as a
+// line break — it takes a dedicated element interleaved between runs.
+type Br struct {
+	XMLName xml.Name `xml:"a:br"`
 }
 
 // RPr is a:rPr (CT_TextCharacterProperties): run-level character

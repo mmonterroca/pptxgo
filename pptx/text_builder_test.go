@@ -26,6 +26,7 @@ package pptx
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -66,5 +67,58 @@ func TestParagraph_FormattingWithNoTextIsANoOp(t *testing.T) {
 
 	if err := p.Save(&bytes.Buffer{}); err != nil {
 		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestFontSize_OutOfRangeBeforeTextIsANoOpNotAnError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+
+	// FontSize(5000) is out of range, but it's called before Text — every
+	// other formatting method documents this as a no-op, and FontSize's own
+	// range check must not run ahead of that "no current run" guard.
+	tb.AddParagraph().FontSize(5000).Text("ok")
+
+	if err := p.Save(&bytes.Buffer{}); err != nil {
+		t.Fatalf("expected no error (FontSize before Text is a no-op), got %v", err)
+	}
+}
+
+func TestFontSize_AcceptsHalfPoints(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("half point").FontSize(10.5)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+	if !strings.Contains(slide, `sz="1050"`) {
+		t.Errorf("expected sz=\"1050\" (10.5pt) in slide1.xml, got %s", slide)
+	}
+}
+
+func TestText_NewlineInsertsExplicitLineBreak(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("Line1\nLine2").Bold()
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	line1Idx := strings.Index(slide, "Line1")
+	brIdx := strings.Index(slide, "<a:br")
+	line2Idx := strings.Index(slide, "Line2")
+	if line1Idx == -1 || brIdx == -1 || line2Idx == -1 {
+		t.Fatalf("expected Line1, a:br, and Line2 all present, got %s", slide)
+	}
+	if !(line1Idx < brIdx && brIdx < line2Idx) {
+		t.Errorf("expected Line1 < a:br < Line2 order, got %s", slide)
+	}
+	// Bold, called once after both lines were started by the same Text
+	// call, must apply to both runs, not just the last.
+	if strings.Count(slide, `b="1"`) != 2 {
+		t.Errorf("expected both lines to be bold, got %s", slide)
 	}
 }
