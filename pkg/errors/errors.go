@@ -78,7 +78,12 @@ func (e *PptxError) Unwrap() error {
 	return e.Err
 }
 
-// Is checks if the error matches the target error.
+// Is reports whether target is a PptxError with the same Code. This matches
+// by category only: every validation error compares equal to every other,
+// so it cannot single out one specific condition. That is fine while nothing
+// discriminates errors this way. TODO: if sentinel errors are introduced for
+// callers to match on, tighten this (e.g. compare identity or an added Kind)
+// so distinct conditions sharing a Code stop comparing equal.
 func (e *PptxError) Is(target error) bool {
 	t, ok := target.(*PptxError)
 	if !ok {

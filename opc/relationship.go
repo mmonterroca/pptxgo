@@ -68,6 +68,13 @@ func NewRelationshipManager() *RelationshipManager {
 }
 
 // Add adds a new relationship and returns its generated ID.
+//
+// It does not deduplicate: adding the same target twice yields two distinct
+// rIds and two <Relationship> entries. That is intentional today (OPC permits
+// it and nothing in the walking skeleton reuses a target), but once the media
+// layer lands, an image referenced from several slides would otherwise be
+// embedded once per reference. TODO(media-phase): before embedding media,
+// dedup via GetByTarget so a reused image maps to one part and one rId.
 func (rm *RelationshipManager) Add(relType, target, targetMode string) (string, error) {
 	if relType == "" {
 		return "", errors.InvalidArgument("RelationshipManager.Add", "relType", relType, "relationship type cannot be empty")
