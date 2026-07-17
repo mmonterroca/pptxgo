@@ -32,12 +32,13 @@ import (
 	"github.com/mmonterroca/pptxgo/pkg/errors"
 )
 
-// TextBox is a handle onto a text-box shape's txBody, returned by
-// Slide.AddTextBox. Its only child method is AddParagraph — text and
-// formatting are set per paragraph.
+// TextBox is a handle onto a text-box shape, returned by Slide.AddTextBox.
+// AddParagraph adds text content; Fill and Border set the shape's own
+// background and outline.
 type TextBox struct {
 	pres *Presentation
 	body *drawingml.TextBody
+	spPr *SpPr
 }
 
 // AddParagraph appends a new, empty paragraph to the text box and returns a
@@ -46,6 +47,27 @@ func (tb *TextBox) AddParagraph() *Paragraph {
 	p := &drawingml.Paragraph{}
 	tb.body.Paragraphs = append(tb.body.Paragraphs, p)
 	return &Paragraph{pres: tb.pres, p: p}
+}
+
+// Fill sets the text box's background to a solid color.
+func (tb *TextBox) Fill(c drawingml.Color) *TextBox {
+	tb.spPr.Fill = drawingml.NewSolidFillRGB(c)
+	return tb
+}
+
+// Border sets the text box's outline to a solid color at the given width,
+// in points (e.g. 0.75, 1.5).
+func (tb *TextBox) Border(c drawingml.Color, widthPoints float64) *TextBox {
+	tb.spPr.Ln = newLn(c, widthPoints)
+	return tb
+}
+
+// newLn builds a solid-color a:ln of the given width in points, shared by
+// TextBox.Border and PictureRef.Border. Point-to-EMU conversion happens
+// here, at the fluent-API boundary, exactly once — the same pattern
+// Paragraph.FontSize uses for centipoints.
+func newLn(c drawingml.Color, widthPoints float64) *drawingml.Ln {
+	return drawingml.NewLn(c, int(widthPoints*drawingml.EMUsPerPoint))
 }
 
 // Paragraph is a handle onto a single a:p, returned by TextBox.AddParagraph.

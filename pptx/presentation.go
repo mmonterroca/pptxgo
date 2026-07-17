@@ -182,7 +182,7 @@ func (p *Presentation) AddSlide() *Slide {
 		RID: slideRID,
 	})
 
-	return &Slide{pres: p, spTree: spTree, nextShapeID: firstShapeID}
+	return &Slide{pres: p, path: path, spTree: spTree, nextShapeID: firstShapeID}
 }
 
 // addErr records a user-input validation error raised deep in a fluent

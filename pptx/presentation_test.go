@@ -28,6 +28,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/xml"
+	"image/png"
 	"regexp"
 	"strings"
 	"testing"
@@ -286,4 +287,129 @@ func TestAddTextBox_WithNoParagraphsStillEmitsOneEmptyParagraph(t *testing.T) {
 	if !strings.Contains(slide, "<a:p></a:p>") && !strings.Contains(slide, "<a:p/>") {
 		t.Errorf("expected a fallback empty paragraph, got %s", slide)
 	}
+}
+
+func TestAddImageFromBytes_EmbedsMediaAndWiresRelationship(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddImageFromBytes(pngBytes(t, 120, 80), Inches(1), Inches(1))
+
+	files := generateFrom(t, p)
+
+	if _, ok := files["ppt/media/image1.png"]; !ok {
+		t.Fatalf("expected ppt/media/image1.png to exist, got %v", mapKeys(files))
+	}
+
+	slide := string(files["ppt/slides/slide1.xml"])
+	for _, want := range []string{"<p:pic>", "<p:blipFill>", `r:embed="rId2"`} {
+		if !strings.Contains(slide, want) {
+			t.Errorf("expected %q in slide1.xml, got %s", want, slide)
+		}
+	}
+
+	// 120px/80px at 96 DPI -> 1143000/762000 EMU.
+	if !strings.Contains(slide, `cx="1143000" cy="762000"`) {
+		t.Errorf("expected auto-computed 96 DPI size, got %s", slide)
+	}
+
+	ct := string(files["[Content_Types].xml"])
+	if !strings.Contains(ct, `Extension="png"`) {
+		t.Errorf("expected a png Default in [Content_Types].xml, got %s", ct)
+	}
+
+	rels := string(files["ppt/slides/_rels/slide1.xml.rels"])
+	if !strings.Contains(rels, `Target="../media/image1.png"`) {
+		t.Errorf("expected image relationship target, got %s", rels)
+	}
+}
+
+func TestAddImageFromBytesWithSize_UsesExplicitDimensions(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddImageFromBytesWithSize(pngBytes(t, 120, 80), Inches(1), Inches(1), Inches(3), Inches(2))
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+	if !strings.Contains(slide, `cx="2743200" cy="1828800"`) {
+		t.Errorf("expected explicit 3in x 2in size, got %s", slide)
+	}
+}
+
+func TestPictureRef_Border_EmitsLnAfterPrstGeom(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddImageFromBytes(pngBytes(t, 40, 40), Inches(1), Inches(1)).
+		Border(RGB(0, 0, 0), 1.0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	prstGeomIdx := strings.Index(slide, "<a:prstGeom")
+	lnIdx := strings.Index(slide, "<a:ln")
+	if prstGeomIdx == -1 || lnIdx == -1 || prstGeomIdx > lnIdx {
+		t.Errorf("expected a:prstGeom before a:ln, got %s", slide)
+	}
+	// 1 point = 12700 EMU.
+	if !strings.Contains(slide, `<a:ln w="12700">`) {
+		t.Errorf("expected a 1pt (12700 EMU) border width, got %s", slide)
+	}
+}
+
+func TestTextBox_FillAndBorder_EmitsSolidFillBeforeLn(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2)).
+		Fill(RGB(0xE7, 0xE6, 0xE6)).
+		Border(RGB(0x1F, 0x49, 0x7D), 1.5)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	fillIdx := strings.Index(slide, `<a:srgbClr val="E7E6E6">`)
+	lnIdx := strings.Index(slide, "<a:ln")
+	if fillIdx == -1 || lnIdx == -1 || fillIdx > lnIdx {
+		t.Errorf("expected shape fill before a:ln, got %s", slide)
+	}
+	// 1.5 points = 19050 EMU.
+	if !strings.Contains(slide, `<a:ln w="19050">`) {
+		t.Errorf("expected a 1.5pt (19050 EMU) border width, got %s", slide)
+	}
+}
+
+func TestAddImage_MissingFileAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddImage("/nonexistent/path/does-not-exist.png", Inches(1), Inches(1))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated file-read error")
+	}
+}
+
+func TestAddImageFromBytes_NonImageDataAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddImageFromBytes([]byte("not an image"), Inches(1), Inches(1))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated format-detection error")
+	}
+}
+
+// pngBytes returns a solid-color w x h PNG, encoded in memory.
+func pngBytes(t *testing.T, w, h int) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, solidImage(w, h)); err != nil {
+		t.Fatalf("png.Encode: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func mapKeys(m map[string][]byte) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
