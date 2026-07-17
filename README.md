@@ -7,9 +7,17 @@ Microsoft PowerPoint .pptx (OOXML / PresentationML) generation in Go.
 
 ## Status
 
-**Early development.** The OPC packaging layer and a minimal walking-skeleton
-presentation (empty slide, valid theme, master/layout) are being built first;
-text, images, tables, and templates follow.
+**Early development.** The OPC packaging layer and drawingml primitives are
+in place, and `pptx.New()` produces a minimal, single-blank-slide
+presentation — verified against both the Open XML SDK's schema validator
+and LibreOffice Impress (see Verification below). Text, images, tables, and
+templates follow.
+
+```go
+p := pptx.New()
+f, _ := os.Create("presentation.pptx")
+p.Save(f)
+```
 
 ## Design
 
@@ -36,6 +44,28 @@ Two packages are written to be extraction-ready from the start:
 
 If a future sibling project needs the same OPC engine, both are designed to
 be lifted into a standalone module without a rewrite.
+
+## Verification
+
+A file that unzips fine can still be schema-invalid, and Go-level tests
+alone can't tell you that — they only check what you thought to assert.
+`make check` runs three layers:
+
+1. `go test ./...` — structural regression tests (every relationship target
+   resolves to a part that exists, `[Content_Types].xml` covers every part,
+   no duplicate relationship IDs within an owner).
+2. `PptxValidator/` — an `OpenXmlValidator` (DocumentFormat.OpenXml, the
+   same library Microsoft ships) run against a generated demo file. Wired
+   into CI from the first commit — unlike docxgo, where the equivalent
+   validator existed for nine months before CI ever invoked it.
+3. Opening the file in a real consumer. `make validate` also works as a
+   smoke test if you pipe its output pptx through
+   `soffice --headless --convert-to pdf`; a manual open in PowerPoint
+   itself remains the authoritative check no automated tool replaces.
+
+```
+make check     # test + build + generate + OpenXML SDK validation
+```
 
 ## License
 
