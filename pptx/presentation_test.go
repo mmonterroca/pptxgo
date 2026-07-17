@@ -29,6 +29,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"image/png"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -393,6 +394,73 @@ func TestAddImageFromBytes_NonImageDataAccumulatesError(t *testing.T) {
 
 	if err := p.Save(&bytes.Buffer{}); err == nil {
 		t.Fatal("expected Save to return the accumulated format-detection error")
+	}
+}
+
+func TestAddImageFromBytesWithSize_ExplicitZeroSizeIsPreserved(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	// An explicit (0, 0) is a caller choice, distinct from "no size given"
+	// (AddImageFromBytes) — it must not silently fall back to the image's
+	// own 96 DPI dimensions.
+	s.AddImageFromBytesWithSize(pngBytes(t, 120, 80), Inches(1), Inches(1), 0, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+	if !strings.Contains(slide, `cx="0" cy="0"`) {
+		t.Errorf("expected the explicit 0x0 size to be preserved, got %s", slide)
+	}
+}
+
+func TestAddImageWithSize_ExplicitZeroSizeIsPreserved(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	f, err := os.CreateTemp(t.TempDir(), "*.png")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	if _, err := f.Write(pngBytes(t, 120, 80)); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	f.Close()
+
+	s.AddImageWithSize(f.Name(), Inches(1), Inches(1), 0, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+	if !strings.Contains(slide, `cx="0" cy="0"`) {
+		t.Errorf("expected the explicit 0x0 size to be preserved, got %s", slide)
+	}
+}
+
+func TestBorder_NegativeWidthAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2)).Border(RGB(0, 0, 0), -1)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated border-width error")
+	}
+}
+
+func TestBorder_OverMaxWidthAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddImageFromBytes(pngBytes(t, 40, 40), Inches(1), Inches(1)).Border(RGB(0, 0, 0), 1584.1)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated border-width error")
+	}
+}
+
+func TestBorder_BoundaryWidthsDoNotError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2)).Border(RGB(0, 0, 0), 0)
+	s.AddTextBox(Inches(1), Inches(4), Inches(8), Inches(2)).Border(RGB(0, 0, 0), 1584)
+
+	if err := p.Save(&bytes.Buffer{}); err != nil {
+		t.Fatalf("expected no error for boundary-valid border widths, got %v", err)
 	}
 }
 

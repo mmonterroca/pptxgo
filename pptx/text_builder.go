@@ -56,17 +56,31 @@ func (tb *TextBox) Fill(c drawingml.Color) *TextBox {
 }
 
 // Border sets the text box's outline to a solid color at the given width,
-// in points (e.g. 0.75, 1.5).
+// in points (e.g. 0.75, 1.5; 0-1584, matching ST_LineWidth's 0-20,116,800
+// EMU range). An out-of-range width is recorded as an error on the
+// presentation (returned by Save) and leaves the border unset.
 func (tb *TextBox) Border(c drawingml.Color, widthPoints float64) *TextBox {
-	tb.spPr.Ln = newLn(c, widthPoints)
+	tb.spPr.Ln = newLn(tb.pres, c, widthPoints)
 	return tb
 }
+
+// maxLineWidthPoints is ST_LineWidth's maximum, 20,116,800 EMU, expressed
+// in points (20116800 / EMUsPerPoint).
+const maxLineWidthPoints = 1584
 
 // newLn builds a solid-color a:ln of the given width in points, shared by
 // TextBox.Border and PictureRef.Border. Point-to-EMU conversion happens
 // here, at the fluent-API boundary, exactly once — the same pattern
-// Paragraph.FontSize uses for centipoints.
-func newLn(c drawingml.Color, widthPoints float64) *drawingml.Ln {
+// Paragraph.FontSize uses for centipoints. An out-of-range width (negative,
+// or over ST_LineWidth's maximum) is recorded as an error on pres and
+// returns nil, leaving the caller's Ln field unset rather than emitting a
+// schema-invalid a:ln/@w.
+func newLn(pres *Presentation, c drawingml.Color, widthPoints float64) *drawingml.Ln {
+	if widthPoints < 0 || widthPoints > maxLineWidthPoints {
+		pres.addErr(errors.InvalidArgument("Border", "widthPoints", widthPoints,
+			"must be between 0 and 1584 (ST_LineWidth's 0-20,116,800 EMU range)"))
+		return nil
+	}
 	return drawingml.NewLn(c, int(widthPoints*drawingml.EMUsPerPoint))
 }
 

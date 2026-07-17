@@ -51,6 +51,8 @@ const emuPerPixel96DPI = drawingml.EMUsPerInch / 96
 // (PNG, JPEG, GIF); anything else — including BMP, TIFF, WMF, and EMF,
 // which all have an opc.ContentType constant but no stdlib decoder —
 // returns an error rather than silently mis-sizing or mis-typing the image.
+// For JPEG, the reported dimensions account for EXIF orientation (see
+// jpegOrientation) so a photo shot in portrait doesn't render squished.
 func imageMeta(data []byte) (wPx, hPx int, contentType, ext string, err error) {
 	cfg, format, decodeErr := image.DecodeConfig(bytes.NewReader(data))
 	if decodeErr != nil {
@@ -62,7 +64,15 @@ func imageMeta(data []byte) (wPx, hPx int, contentType, ext string, err error) {
 	case "png":
 		return cfg.Width, cfg.Height, opc.ContentTypePNG, "png", nil
 	case "jpeg":
-		return cfg.Width, cfg.Height, opc.ContentTypeJPEG, "jpeg", nil
+		w, h := cfg.Width, cfg.Height
+		// A 90/270-degree EXIF orientation means the stored pixel grid is
+		// transposed relative to how the image displays; swap the
+		// dimensions pptxgo sizes the picture with so its aspect ratio
+		// matches what a viewer shows, not the sensor's native grid.
+		if o := jpegOrientation(data); o >= 5 && o <= 8 {
+			w, h = h, w
+		}
+		return w, h, opc.ContentTypeJPEG, "jpeg", nil
 	case "gif":
 		return cfg.Width, cfg.Height, opc.ContentTypeGIF, "gif", nil
 	default:

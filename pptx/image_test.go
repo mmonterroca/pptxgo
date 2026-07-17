@@ -26,6 +26,7 @@ package pptx
 
 import (
 	"bytes"
+	"encoding/binary"
 	"image"
 	"image/color"
 	"image/gif"
@@ -124,4 +125,99 @@ func TestEmuPerPixel96DPI_MatchesInchConversion(t *testing.T) {
 	if got := 96 * emuPerPixel96DPI; got != drawingml.EMUsPerInch {
 		t.Errorf("96px at 96DPI = %d EMU, want %d (1 inch)", got, drawingml.EMUsPerInch)
 	}
+}
+
+// withExifOrientation inserts a synthetic APP1 EXIF segment declaring the
+// given orientation right after jpegData's leading SOI marker, simulating
+// a camera-produced JPEG. Real decoders (and jpegOrientation's own marker
+// scan) tolerate an EXIF segment preceding the JFIF APP0 segment, which is
+// exactly how most real camera JPEGs are laid out.
+func withExifOrientation(t *testing.T, jpegData []byte, orientation uint16) []byte {
+	t.Helper()
+	if len(jpegData) < 2 || jpegData[0] != 0xFF || jpegData[1] != 0xD8 {
+		t.Fatalf("not a JPEG (missing SOI marker)")
+	}
+
+	tiff := make([]byte, 0, 18)
+	tiff = append(tiff, 'I', 'I') // little-endian
+	tiff = binary.LittleEndian.AppendUint16(tiff, 0x002A)
+	tiff = binary.LittleEndian.AppendUint32(tiff, 8)      // IFD0 offset, right after this 8-byte header
+	tiff = binary.LittleEndian.AppendUint16(tiff, 1)      // one directory entry
+	tiff = binary.LittleEndian.AppendUint16(tiff, 0x0112) // tag: Orientation
+	tiff = binary.LittleEndian.AppendUint16(tiff, 3)      // type: SHORT
+	tiff = binary.LittleEndian.AppendUint32(tiff, 1)      // count: 1
+	tiff = binary.LittleEndian.AppendUint16(tiff, orientation)
+	tiff = append(tiff, 0, 0) // pad the 4-byte value/offset slot
+
+	payload := append([]byte("Exif\x00\x00"), tiff...)
+	segLen := len(payload) + 2 // includes the 2 length bytes themselves
+
+	app1 := []byte{0xFF, 0xE1, byte(segLen >> 8), byte(segLen)}
+	app1 = append(app1, payload...)
+
+	out := make([]byte, 0, len(jpegData)+len(app1))
+	out = append(out, jpegData[:2]...) // SOI
+	out = append(out, app1...)
+	out = append(out, jpegData[2:]...)
+	return out
+}
+
+func TestJpegOrientation_ReadsInjectedTag(t *testing.T) {
+	base := encodeJPEG(t, 64, 48)
+
+	for _, o := range []uint16{1, 3, 6, 8} {
+		jpg := withExifOrientation(t, base, o)
+		if got := jpegOrientation(jpg); got != int(o) {
+			t.Errorf("orientation %d: jpegOrientation returned %d", o, got)
+		}
+	}
+}
+
+func TestJpegOrientation_DefaultsWhenAbsent(t *testing.T) {
+	base := encodeJPEG(t, 64, 48) // no EXIF at all, same as a synthetic/non-camera JPEG
+	if got := jpegOrientation(base); got != exifOrientationDefault {
+		t.Errorf("got orientation %d, want default %d", got, exifOrientationDefault)
+	}
+}
+
+func TestImageMeta_JPEG_SwapsDimensionsForRotatedOrientation(t *testing.T) {
+	base := encodeJPEG(t, 64, 48) // landscape pixel grid
+
+	cases := []struct {
+		name        string
+		orientation uint16
+		wantW       int
+		wantH       int
+	}{
+		{"no EXIF", 0, 64, 48}, // 0 signals "don't inject a tag" below
+		{"upright(1)", 1, 64, 48},
+		{"flip(4)", 4, 64, 48},
+		{"rotate90(6)", 6, 48, 64},
+		{"rotate270(8)", 8, 48, 64},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := base
+			if tc.orientation != 0 {
+				data = withExifOrientation(t, base, tc.orientation)
+			}
+			w, h, _, _, err := imageMeta(data)
+			if err != nil {
+				t.Fatalf("imageMeta: %v", err)
+			}
+			if w != tc.wantW || h != tc.wantH {
+				t.Errorf("got %dx%d, want %dx%d", w, h, tc.wantW, tc.wantH)
+			}
+		})
+	}
+}
+
+// encodeJPEG returns a solid-color w x h JPEG, encoded in memory.
+func encodeJPEG(t *testing.T, w, h int) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, solidImage(w, h), nil); err != nil {
+		t.Fatalf("jpeg.Encode: %v", err)
+	}
+	return buf.Bytes()
 }

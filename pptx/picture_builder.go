@@ -36,8 +36,10 @@ type PictureRef struct {
 }
 
 // Border sets the picture's outline to a solid color at the given width,
-// in points (e.g. 0.75, 1.5).
+// in points (e.g. 0.75, 1.5; 0-1584, matching ST_LineWidth's 0-20,116,800
+// EMU range). An out-of-range width is recorded as an error on the
+// presentation (returned by Save) and leaves the border unset.
 func (p *PictureRef) Border(c drawingml.Color, widthPoints float64) *PictureRef {
-	p.spPr.Ln = newLn(c, widthPoints)
+	p.spPr.Ln = newLn(p.pres, c, widthPoints)
 	return p
 }

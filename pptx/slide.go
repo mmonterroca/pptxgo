@@ -82,43 +82,48 @@ func (s *Slide) AddImage(path string, x, y int) *PictureRef {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		s.pres.addErr(err)
-		return s.addPicture(nil, x, y, 0, 0)
+		return s.addPicture(nil, x, y, 0, 0, false)
 	}
-	return s.addPicture(data, x, y, 0, 0)
+	return s.addPicture(data, x, y, 0, 0, false)
 }
 
 // AddImageWithSize adds an image at (x, y) with an explicit size (w, h),
-// all in EMUs. Format is auto-detected; the image's own pixel dimensions
-// are ignored in favor of w and h.
+// all in EMUs — including a (0, 0) size, which is used as given rather
+// than falling back to auto-sizing. Format is auto-detected; the image's
+// own pixel dimensions are otherwise ignored in favor of w and h.
 func (s *Slide) AddImageWithSize(path string, x, y, w, h int) *PictureRef {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		s.pres.addErr(err)
-		return s.addPicture(nil, x, y, w, h)
+		return s.addPicture(nil, x, y, w, h, true)
 	}
-	return s.addPicture(data, x, y, w, h)
+	return s.addPicture(data, x, y, w, h, true)
 }
 
 // AddImageFromBytes adds an in-memory image (PNG, JPEG, or GIF, format
 // auto-detected) at (x, y), auto-sized from its pixel dimensions at 96 DPI.
 func (s *Slide) AddImageFromBytes(data []byte, x, y int) *PictureRef {
-	return s.addPicture(data, x, y, 0, 0)
+	return s.addPicture(data, x, y, 0, 0, false)
 }
 
 // AddImageFromBytesWithSize adds an in-memory image at (x, y) with an
-// explicit size (w, h), all in EMUs.
+// explicit size (w, h), all in EMUs — including a (0, 0) size, which is
+// used as given rather than falling back to auto-sizing.
 func (s *Slide) AddImageFromBytesWithSize(data []byte, x, y, w, h int) *PictureRef {
-	return s.addPicture(data, x, y, w, h)
+	return s.addPicture(data, x, y, w, h, true)
 }
 
-// addPicture is the shared path for all four AddImage* variants. w and h,
-// when both non-zero, are used as-is (the WithSize variants); when both
-// zero, the image's own pixel dimensions (scaled at 96 DPI) are used
-// instead. When data is nil, a file read already failed and the error was
-// accumulated by the caller — addPicture still returns a usable, if
-// imageless, *PictureRef so a long fluent chain doesn't need a nil check
-// after every call.
-func (s *Slide) addPicture(data []byte, x, y, w, h int) *PictureRef {
+// addPicture is the shared path for all four AddImage* variants.
+// useExplicitSize distinguishes the WithSize variants (which use w, h
+// exactly as given, even (0, 0)) from the auto-sizing ones (which ignore w
+// and h and use the image's own pixel dimensions, scaled at 96 DPI) — a
+// zero-valued w/h is not itself the auto-size signal, since a caller who
+// explicitly asked for a (0, 0) picture should get one, not a silently
+// different size. When data is nil, a file read already failed and the
+// error was accumulated by the caller — addPicture still returns a usable,
+// if imageless, *PictureRef so a long fluent chain doesn't need a nil
+// check after every call.
+func (s *Slide) addPicture(data []byte, x, y, w, h int, useExplicitSize bool) *PictureRef {
 	id := s.nextShapeID
 	s.nextShapeID++
 
@@ -149,7 +154,7 @@ func (s *Slide) addPicture(data []byte, x, y, w, h int) *PictureRef {
 		return &PictureRef{pres: s.pres, spPr: spPr}
 	}
 
-	if w == 0 && h == 0 {
+	if !useExplicitSize {
 		w, h = wPx*emuPerPixel96DPI, hPx*emuPerPixel96DPI
 	}
 	spPr.Xfrm = &drawingml.Xfrm{Off: &drawingml.Off{X: x, Y: y}, Ext: &drawingml.Ext{Cx: w, Cy: h}}
