@@ -1,0 +1,22 @@
+.vscode/
+*.pptx
+.DS_Store
+bin/
+coverage.out
+coverage.html
+PptxValidator/bin/
+PptxValidator/obj/
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Compiled binaries generated inside numbered examples
+examples/[0-9][0-9]_*/*
+!examples/[0-9][0-9]_*/**/*.go
+!examples/[0-9][0-9]_*/**/*.md
