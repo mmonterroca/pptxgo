@@ -28,7 +28,11 @@ Two packages are written to be extraction-ready from the start:
   content-types, ZIP serialization). Format-agnostic; knows nothing about
   slides or paragraphs.
 - `drawingml/` — the DrawingML primitives shared by DOCX/PPTX/XLSX (`a:xfrm`,
-  `a:off`, `a:ext`, `a:blip`, `a:prstGeom`, colors, transforms).
+  `a:off`, `a:ext`, `a:blip`, `a:prstGeom`, colors, transforms). It only ever
+  emits the `a:` namespace — the picture container that wraps a blip fill
+  differs by host format (`pic:pic` in a Word-embedded graphic, `p:pic` on a
+  PPTX slide), so that wrapper is deliberately left to the package that
+  needs it, built out of these shared primitives.
 
 If a future sibling project needs the same OPC engine, both are designed to
 be lifted into a standalone module without a rewrite.

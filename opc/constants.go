@@ -35,34 +35,6 @@ SOFTWARE.
 // exact same code path.
 package opc
 
-// Measurement conversions shared by all OOXML DrawingML-based formats.
-const (
-	// TwipsPerInch is the number of twips in one inch (1440).
-	// A twip is 1/1440 of an inch, or 1/20 of a point. Used by WordprocessingML.
-	TwipsPerInch = 1440
-
-	// TwipsPerPoint is the number of twips in one point (20).
-	TwipsPerPoint = 20
-
-	// PointsPerInch is 72 points per inch.
-	PointsPerInch = 72
-
-	// EMUsPerInch is the number of English Metric Units in one inch (914400).
-	// EMUs are the unit DrawingML uses for shape transforms (a:off, a:ext).
-	EMUsPerInch = 914400
-
-	// EMUsPerTwip is EMUsPerInch / TwipsPerInch (635).
-	EMUsPerTwip = 635
-
-	// EMUsPerPoint is EMUsPerInch / PointsPerInch (12700). PresentationML
-	// needs this for line widths (a:ln w=) and any point-based positioning;
-	// WordprocessingML's half-point/twip units never required it.
-	EMUsPerPoint = 12700
-
-	// EMUsPerCentimeter is EMUsPerInch / 2.54, rounded (360000).
-	EMUsPerCentimeter = 360000
-)
-
 // OPC namespaces (package-level; format-specific namespaces such as
 // PresentationML's "p:" live in the consuming package, not here).
 const (
