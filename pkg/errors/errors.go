@@ -32,13 +32,9 @@ import (
 
 // Error codes for categorizing errors.
 const (
-	ErrCodeValidation   = "VALIDATION_ERROR"
-	ErrCodeNotFound     = "NOT_FOUND"
-	ErrCodeInvalidState = "INVALID_STATE"
-	ErrCodeIO           = "IO_ERROR"
-	ErrCodeXML          = "XML_ERROR"
-	ErrCodeInternal     = "INTERNAL_ERROR"
-	ErrCodeUnsupported  = "UNSUPPORTED"
+	ErrCodeValidation = "VALIDATION_ERROR"
+	ErrCodeNotFound   = "NOT_FOUND"
+	ErrCodeInternal   = "INTERNAL_ERROR"
 )
 
 // PptxError represents a structured error in pptxgo.
@@ -109,15 +105,6 @@ func NotFound(op, item string) error {
 	}
 }
 
-// InvalidState creates an "invalid state" error.
-func InvalidState(op, message string) error {
-	return &PptxError{
-		Code:    ErrCodeInvalidState,
-		Op:      op,
-		Message: message,
-	}
-}
-
 // Wrap wraps an error with operation context.
 func Wrap(err error, op string) error {
 	if err == nil {
@@ -127,14 +114,5 @@ func Wrap(err error, op string) error {
 		Code: ErrCodeInternal,
 		Op:   op,
 		Err:  err,
-	}
-}
-
-// Unsupported creates an "unsupported" error.
-func Unsupported(op, feature string) error {
-	return &PptxError{
-		Code:    ErrCodeUnsupported,
-		Op:      op,
-		Message: fmt.Sprintf("%s is not supported", feature),
 	}
 }

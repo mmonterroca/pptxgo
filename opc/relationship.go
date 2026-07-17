@@ -26,6 +26,7 @@ package opc
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -79,16 +80,21 @@ func (rm *RelationshipManager) Add(relType, target, targetMode string) (string, 
 	defer rm.mu.Unlock()
 
 	id := fmt.Sprintf("rId%d", rm.relCounter.Add(1))
-
-	// Only "External" requires the TargetMode attribute; for internal
-	// relationships Office expects it to be omitted entirely.
-	mode := strings.TrimSpace(targetMode)
-	if strings.EqualFold(mode, "internal") || mode == "" {
-		mode = ""
-	}
-
-	rm.relationships[id] = &Relationship{ID: id, Type: relType, Target: target, TargetMode: mode}
+	rm.relationships[id] = &Relationship{ID: id, Type: relType, Target: target, TargetMode: normalizeTargetMode(targetMode)}
 	return id, nil
+}
+
+// normalizeTargetMode canonicalizes a relationship's target mode. Only
+// "External" is emitted; internal relationships (the default) omit the
+// attribute entirely, which is what Office expects. Shared by Add and
+// RegisterExisting so both entry points serialize an internal relationship
+// identically.
+func normalizeTargetMode(mode string) string {
+	mode = strings.TrimSpace(mode)
+	if strings.EqualFold(mode, "internal") || mode == "" {
+		return ""
+	}
+	return mode
 }
 
 // AddImage adds an image relationship (Internal, RelTypeImage).
@@ -126,16 +132,41 @@ func (rm *RelationshipManager) GetByTarget(target string) (*Relationship, error)
 	return nil, errors.NotFound("RelationshipManager.GetByTarget", "relationship")
 }
 
-// All returns every relationship owned by this manager.
+// All returns every relationship owned by this manager, ordered by ascending
+// numeric rId (see sortedLocked).
 func (rm *RelationshipManager) All() []*Relationship {
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
+	return rm.sortedLocked()
+}
 
+// sortedLocked returns the relationships ordered by ascending numeric rId.
+// The manager stores relationships in a map (keyed by ID for lookup), whose
+// iteration order Go randomizes; sorting here is what makes every .rels part
+// — and therefore the whole .pptx byte stream — reproducible run-to-run,
+// which reproducible builds and golden-file tests depend on. Must be called
+// with rm.mu held (read or write).
+func (rm *RelationshipManager) sortedLocked() []*Relationship {
 	rels := make([]*Relationship, 0, len(rm.relationships))
 	for _, rel := range rm.relationships {
 		rels = append(rels, rel)
 	}
+	sort.Slice(rels, func(i, j int) bool {
+		return relIDLess(rels[i].ID, rels[j].ID)
+	})
 	return rels
+}
+
+// relIDLess orders relationship IDs by their numeric suffix ("rId2" < "rId10"),
+// falling back to a plain string comparison for any ID that does not fit the
+// "rId<n>" shape.
+func relIDLess(a, b string) bool {
+	na, erra := strconv.ParseUint(strings.TrimPrefix(strings.ToLower(a), "rid"), 10, 64)
+	nb, errb := strconv.ParseUint(strings.TrimPrefix(strings.ToLower(b), "rid"), 10, 64)
+	if erra == nil && errb == nil {
+		return na < nb
+	}
+	return a < b
 }
 
 // Count returns the number of relationships.
@@ -166,32 +197,12 @@ func (rm *RelationshipManager) RegisterExisting(id, relType, target, targetMode 
 		return nil
 	}
 
-	mode := strings.TrimSpace(targetMode)
-	if strings.EqualFold(mode, "internal") || mode == "" {
-		mode = ""
-	}
-
-	rm.relationships[id] = &Relationship{ID: id, Type: relType, Target: target, TargetMode: mode}
+	rm.relationships[id] = &Relationship{ID: id, Type: relType, Target: target, TargetMode: normalizeTargetMode(targetMode)}
 
 	if n, err := strconv.Atoi(strings.TrimPrefix(strings.ToLower(id), "rid")); err == nil {
-		rm.ensureCounterAtLeast(uint64(n))
+		advanceAtLeast(&rm.relCounter, uint64(n))
 	}
 	return nil
-}
-
-// ensureCounterAtLeast advances relCounter to at least value, without ever
-// decreasing it, so IDs generated after RegisterExisting never collide with
-// a preserved one.
-func (rm *RelationshipManager) ensureCounterAtLeast(value uint64) {
-	for {
-		current := rm.relCounter.Load()
-		if current >= value {
-			return
-		}
-		if rm.relCounter.CompareAndSwap(current, value) {
-			return
-		}
-	}
 }
 
 // ToXML converts the relationships to their .rels XML representation.
@@ -203,7 +214,7 @@ func (rm *RelationshipManager) ToXML() *XMLRelationships {
 		Xmlns:         NamespacePackageRels,
 		Relationships: make([]*XMLRelationship, 0, len(rm.relationships)),
 	}
-	for _, rel := range rm.relationships {
+	for _, rel := range rm.sortedLocked() {
 		out.Relationships = append(out.Relationships, &XMLRelationship{
 			ID:         rel.ID,
 			Type:       rel.Type,

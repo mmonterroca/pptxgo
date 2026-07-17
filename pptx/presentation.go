@@ -65,6 +65,19 @@ func New() *Presentation {
 
 	pkg.AddRawPart(PathTheme1, opc.ContentTypeTheme, []byte(defaultTheme))
 
+	// Add the master's relationships first and thread the generated rIds
+	// into the XML, rather than restating "rId2" as a literal that silently
+	// depends on the exact order of these Add calls. The master body only
+	// references the layout by rId; the theme rel lives in the .rels but is
+	// not referenced from the body.
+	masterRels := pkg.Relationships(PathSlideMaster1)
+	if _, err := masterRels.Add(opc.RelTypeTheme, "../theme/theme1.xml", "Internal"); err != nil {
+		panic(err) // static, well-formed arguments; cannot fail
+	}
+	layoutRID, err := masterRels.Add(RelTypeSlideLayout, "../slideLayouts/slideLayout1.xml", "Internal")
+	if err != nil {
+		panic(err)
+	}
 	pkg.AddPart(PathSlideMaster1, ContentTypeSlideMaster, &XMLSlideMaster{
 		XmlnsA: drawingml.NamespaceMain,
 		XmlnsR: drawingml.NamespaceRelationships,
@@ -72,17 +85,10 @@ func New() *Presentation {
 		CSld:   &CSld{SpTree: NewEmptySpTree()},
 		ClrMap: NewDefaultClrMap(),
 		SldLayoutIdLst: &SldLayoutIdLst{
-			Entries: []*SldLayoutId{{ID: firstSldLayoutID, RID: "rId2"}},
+			Entries: []*SldLayoutId{{ID: firstSldLayoutID, RID: layoutRID}},
 		},
 		TxStyles: NewDefaultTxStyles(),
 	})
-	masterRels := pkg.Relationships(PathSlideMaster1)
-	if _, err := masterRels.Add(opc.RelTypeTheme, "../theme/theme1.xml", "Internal"); err != nil {
-		panic(err) // static, well-formed arguments; cannot fail
-	}
-	if _, err := masterRels.Add(RelTypeSlideLayout, "../slideLayouts/slideLayout1.xml", "Internal"); err != nil {
-		panic(err)
-	}
 
 	pkg.AddPart(PathSlideLayout1, ContentTypeSlideLayout, &XMLSlideLayout{
 		XmlnsA:    drawingml.NamespaceMain,
@@ -108,26 +114,30 @@ func New() *Presentation {
 		panic(err)
 	}
 
+	// Same pattern: add the presentation's relationships and reference the
+	// master and slide by the rIds Add returns, not by hardcoded literals.
+	presRels := pkg.Relationships(PathPresentation)
+	masterRID, err := presRels.Add(RelTypeSlideMaster, "slideMasters/slideMaster1.xml", "Internal")
+	if err != nil {
+		panic(err)
+	}
+	slideRID, err := presRels.Add(RelTypeSlide, "slides/slide1.xml", "Internal")
+	if err != nil {
+		panic(err)
+	}
 	pkg.AddPart(PathPresentation, ContentTypePresentation, &XMLPresentation{
 		XmlnsA: drawingml.NamespaceMain,
 		XmlnsR: drawingml.NamespaceRelationships,
 		XmlnsP: NamespaceMain,
 		SldMasterIdLst: &SldMasterIdLst{
-			Entries: []*SldMasterId{{ID: firstSldMasterID, RID: "rId1"}},
+			Entries: []*SldMasterId{{ID: firstSldMasterID, RID: masterRID}},
 		},
 		SldIdLst: &SldIdLst{
-			Entries: []*SldId{{ID: firstSldID, RID: "rId2"}},
+			Entries: []*SldId{{ID: firstSldID, RID: slideRID}},
 		},
 		SldSz:   &SldSz{Cx: slideWidthEMU, Cy: slideHeightEMU, Type: "screen16x9"},
 		NotesSz: &NotesSz{Cx: notesWidthEMU, Cy: notesHeightEMU},
 	})
-	presRels := pkg.Relationships(PathPresentation)
-	if _, err := presRels.Add(RelTypeSlideMaster, "slideMasters/slideMaster1.xml", "Internal"); err != nil {
-		panic(err)
-	}
-	if _, err := presRels.Add(RelTypeSlide, "slides/slide1.xml", "Internal"); err != nil {
-		panic(err)
-	}
 
 	pkg.AddPart(PathCoreProps, opc.ContentTypeCoreProperties, NewCoreProperties("", ""))
 	pkg.AddPart(PathAppProps, opc.ContentTypeExtendedProperties, NewAppProperties())

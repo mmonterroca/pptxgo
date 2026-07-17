@@ -83,9 +83,11 @@ func NewPackage() *Package {
 	}
 }
 
-// IDs returns the package's shared ID generator, used for relationship IDs
-// and by callers that need collision-free identifiers for their own
-// generated content (media file names, shape IDs, and the like).
+// IDs returns the package's shared ID generator, for identifiers that must
+// be unique across the whole package — media file names, shape IDs, and the
+// like. Relationship IDs are NOT minted here: they are scoped per owning
+// part (see Relationships) and each RelationshipManager numbers its own,
+// so mixing this generator into an rId would break that per-part scoping.
 func (p *Package) IDs() *IDGenerator {
 	return p.ids
 }
@@ -110,24 +112,29 @@ func (p *Package) AddRawPart(pth, contentType string, raw []byte) *Part {
 	return p.addPart(&Part{Path: normalizePartPath(pth), ContentType: contentType, Raw: raw})
 }
 
-// AddMediaPart registers a binary media part (an image, typically). Unlike
-// AddPart/AddRawPart, it does not receive a Content_Types Override; instead
-// it ensures a Default exists for the part's extension, exactly as Office
-// itself represents media parts, so many images of the same type share one
-// Content_Types entry instead of one each.
+// AddMediaPart registers a binary media part (an image, typically). When the
+// path has a file extension it is declared via a Content_Types Default for
+// that extension — exactly as Office represents media, so many images of the
+// same type share one entry rather than one Override each. When the path has
+// no extension there is no Default to hang the type on, so the part falls
+// back to a per-part Override; either way its content type is always
+// declared, never silently omitted (which would make Office reject the whole
+// package as corrupt).
 func (p *Package) AddMediaPart(pth, contentType string, data []byte) *Part {
 	pth = normalizePartPath(pth)
 	ext := strings.TrimPrefix(strings.ToLower(path.Ext(pth)), ".")
 
-	p.mu.Lock()
-	if ext != "" {
+	hasDefault := ext != ""
+	if hasDefault {
+		p.mu.Lock()
 		if _, exists := p.defaults[ext]; !exists {
 			p.defaults[ext] = contentType
 		}
+		p.mu.Unlock()
 	}
-	p.mu.Unlock()
 
-	part := &Part{Path: pth, ContentType: contentType, Raw: data, noOverride: true}
+	// noOverride only when a Default already covers this part's extension.
+	part := &Part{Path: pth, ContentType: contentType, Raw: data, noOverride: hasDefault}
 	return p.addPart(part)
 }
 

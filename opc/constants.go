@@ -102,8 +102,6 @@ const (
 	PathRootRels = "_rels/.rels"
 )
 
-// Default capacities for slices/maps, to reduce allocations.
-const (
-	DefaultRelCapacity   = 32
-	DefaultMediaCapacity = 16
-)
+// DefaultRelCapacity is the initial capacity for a part's relationship map,
+// to reduce allocations for the common small-fan-out case.
+const DefaultRelCapacity = 32

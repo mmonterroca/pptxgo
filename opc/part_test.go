@@ -189,6 +189,53 @@ func TestPackage_RootRelsAlwaysWritten(t *testing.T) {
 	}
 }
 
+func TestPackage_WriteIsByteDeterministic(t *testing.T) {
+	// Regression for the map-iteration-order bug: a package with several
+	// relationships per owner must serialize to identical bytes across runs,
+	// or golden-file tests and reproducible builds break. Relationships are
+	// stored in a map, so without an explicit ordering this fails
+	// intermittently (Go randomizes map iteration).
+	build := func() []byte {
+		pkg := NewPackage()
+		pkg.AddPart("ppt/presentation.xml", "application/vnd.example.presentation+xml", &stubValue{})
+		rm := pkg.Relationships("ppt/presentation.xml")
+		for i := 0; i < 12; i++ {
+			if _, err := rm.Add("http://example.com/rel/thing", "target"+string(rune('a'+i))+".xml", "Internal"); err != nil {
+				t.Fatalf("Add: %v", err)
+			}
+		}
+		var buf bytes.Buffer
+		if err := pkg.Write(&buf); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+		return buf.Bytes()
+	}
+
+	first := build()
+	for i := 0; i < 5; i++ {
+		if got := build(); !bytes.Equal(first, got) {
+			t.Fatalf("Write produced different bytes across runs (run %d): relationship order is non-deterministic", i+1)
+		}
+	}
+}
+
+func TestPackage_ExtensionlessMediaStillGetsContentType(t *testing.T) {
+	// An extensionless media path has no extension to hang a Default on; it
+	// must still be declared via an Override, or Office rejects the package.
+	pkg := NewPackage()
+	pkg.AddMediaPart("ppt/media/image1", ContentTypePNG, []byte{0x89, 'P', 'N', 'G'})
+
+	var buf bytes.Buffer
+	if err := pkg.Write(&buf); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	ct := zipFiles(t, buf.Bytes())[PathContentTypes]
+
+	if !strings.Contains(ct, `PartName="/ppt/media/image1"`) {
+		t.Errorf("extensionless media part has no content-type declaration: %s", ct)
+	}
+}
+
 func TestPart_NotFoundVsFound(t *testing.T) {
 	pkg := NewPackage()
 	pkg.AddPart("ppt/presentation.xml", "application/vnd.example.presentation+xml", &stubValue{})
