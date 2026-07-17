@@ -1,0 +1,132 @@
+/*
+MIT License
+
+Copyright (c) 2026 Misael Monterroca
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+
+package drawingml
+
+import (
+	"encoding/xml"
+	"fmt"
+	"strconv"
+
+	"github.com/mmonterroca/pptxgo/pkg/errors"
+)
+
+// Color is an RGB color.
+type Color struct {
+	R, G, B uint8
+}
+
+// Common color constants for convenience.
+var (
+	Black = Color{R: 0, G: 0, B: 0}
+	White = Color{R: 255, G: 255, B: 255}
+)
+
+// ToHex renders c as a 6-digit hex string with no leading "#" (e.g. "FF0000"),
+// the form DrawingML's a:srgbClr val attribute expects.
+func ToHex(c Color) string {
+	return fmt.Sprintf("%02X%02X%02X", c.R, c.G, c.B)
+}
+
+// FromHex parses a hex color string. Accepts "RGB", "RRGGBB", "#RGB", "#RRGGBB".
+func FromHex(hex string) (Color, error) {
+	if len(hex) > 0 && hex[0] == '#' {
+		hex = hex[1:]
+	}
+
+	switch len(hex) {
+	case 3:
+		rv, err := strconv.ParseUint(string(hex[0]), 16, 8)
+		if err != nil {
+			return Color{}, errors.InvalidArgument("FromHex", "hex", hex, "invalid red component")
+		}
+		gv, err := strconv.ParseUint(string(hex[1]), 16, 8)
+		if err != nil {
+			return Color{}, errors.InvalidArgument("FromHex", "hex", hex, "invalid green component")
+		}
+		bv, err := strconv.ParseUint(string(hex[2]), 16, 8)
+		if err != nil {
+			return Color{}, errors.InvalidArgument("FromHex", "hex", hex, "invalid blue component")
+		}
+		return Color{R: uint8(rv*16 + rv), G: uint8(gv*16 + gv), B: uint8(bv*16 + bv)}, nil
+
+	case 6:
+		rv, err := strconv.ParseUint(hex[0:2], 16, 8)
+		if err != nil {
+			return Color{}, errors.InvalidArgument("FromHex", "hex", hex, "invalid red component")
+		}
+		gv, err := strconv.ParseUint(hex[2:4], 16, 8)
+		if err != nil {
+			return Color{}, errors.InvalidArgument("FromHex", "hex", hex, "invalid green component")
+		}
+		bv, err := strconv.ParseUint(hex[4:6], 16, 8)
+		if err != nil {
+			return Color{}, errors.InvalidArgument("FromHex", "hex", hex, "invalid blue component")
+		}
+		return Color{R: uint8(rv), G: uint8(gv), B: uint8(bv)}, nil
+
+	default:
+		return Color{}, errors.InvalidArgument("FromHex", "hex", hex,
+			"hex color must be 3 or 6 characters (optionally prefixed with #)")
+	}
+}
+
+// SolidFill (a:solidFill) fills with a single color, given as either an
+// explicit RGB value (SrgbClr) or a reference into the active theme's color
+// scheme (SchemeClr). Exactly one should be set.
+type SolidFill struct {
+	XMLName   xml.Name   `xml:"a:solidFill"`
+	SrgbClr   *SrgbClr   `xml:"a:srgbClr,omitempty"`
+	SchemeClr *SchemeClr `xml:"a:schemeClr,omitempty"`
+}
+
+// NewSolidFillRGB creates a SolidFill from an explicit color.
+func NewSolidFillRGB(c Color) *SolidFill {
+	return &SolidFill{SrgbClr: &SrgbClr{Val: ToHex(c)}}
+}
+
+// NewSolidFillScheme creates a SolidFill referencing a theme color slot
+// (e.g. "accent1", "dk1", "lt1" — see the theme's a:clrScheme).
+func NewSolidFillScheme(schemeColor string) *SolidFill {
+	return &SolidFill{SchemeClr: &SchemeClr{Val: schemeColor}}
+}
+
+// SrgbClr (a:srgbClr) is an explicit RGB color, as a 6-digit hex string.
+type SrgbClr struct {
+	XMLName xml.Name `xml:"a:srgbClr"`
+	Val     string   `xml:"val,attr"`
+}
+
+// SchemeClr (a:schemeClr) references a color slot from the active theme's
+// color scheme.
+type SchemeClr struct {
+	XMLName xml.Name `xml:"a:schemeClr"`
+	Val     string   `xml:"val,attr"`
+}
+
+// NoFill (a:noFill) is an explicit "no fill" — distinct from omitting a
+// fill element, which lets the shape inherit one from its style or layout.
+type NoFill struct {
+	XMLName xml.Name `xml:"a:noFill"`
+}
