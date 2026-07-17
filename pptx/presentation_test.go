@@ -43,8 +43,17 @@ import (
 
 func generate(t *testing.T) map[string][]byte {
 	t.Helper()
+	p := New()
+	p.AddSlide()
+	return generateFrom(t, p)
+}
+
+// generateFrom saves p and unzips the result, for tests that need a
+// presentation shaped differently than generate's single blank slide.
+func generateFrom(t *testing.T, p *Presentation) map[string][]byte {
+	t.Helper()
 	var buf bytes.Buffer
-	if err := New().Save(&buf); err != nil {
+	if err := p.Save(&buf); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
@@ -189,5 +198,92 @@ func TestNew_RelationshipIDsAreUniquePerOwner(t *testing.T) {
 			}
 			seen[id] = true
 		}
+	}
+}
+
+func TestNew_HasNoSlideUntilAddSlideIsCalled(t *testing.T) {
+	files := generateFrom(t, New())
+
+	if _, ok := files["ppt/slides/slide1.xml"]; ok {
+		t.Error("expected no slide part before AddSlide is called")
+	}
+	if strings.Contains(string(files["ppt/presentation.xml"]), "p:sldIdLst") {
+		t.Error("expected no p:sldIdLst in presentation.xml before AddSlide is called")
+	}
+}
+
+func TestAddSlide_AssignsSequentialIDsAndRelationships(t *testing.T) {
+	p := New()
+	p.AddSlide()
+	p.AddSlide()
+	files := generateFrom(t, p)
+
+	for _, want := range []string{"ppt/slides/slide1.xml", "ppt/slides/slide2.xml"} {
+		if _, ok := files[want]; !ok {
+			t.Errorf("missing %s", want)
+		}
+	}
+
+	pres := string(files["ppt/presentation.xml"])
+	for _, want := range []string{`id="256"`, `id="257"`} {
+		if !strings.Contains(pres, want) {
+			t.Errorf("expected sldId %s in presentation.xml, got %s", want, pres)
+		}
+	}
+
+	rels := string(files["ppt/_rels/presentation.xml.rels"])
+	for _, want := range []string{`Target="slides/slide1.xml"`, `Target="slides/slide2.xml"`} {
+		if !strings.Contains(rels, want) {
+			t.Errorf("expected %s in presentation.xml.rels, got %s", want, rels)
+		}
+	}
+}
+
+func TestAddTextBox_EmitsSchemaOrderedFormattedText(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().
+		Text("Quarterly Results").Bold().FontSize(32).Font("Calibri").Color(RGB(0x1F, 0x49, 0x7D)).
+		Alignment(AlignCenter)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	for _, want := range []string{
+		"<p:sp>",
+		"<p:txBody>",
+		`<a:t xml:space="preserve">Quarterly Results</a:t>`,
+		`sz="3200"`,
+		`b="1"`,
+		`algn="ctr"`,
+		`typeface="Calibri"`,
+	} {
+		if !strings.Contains(slide, want) {
+			t.Errorf("expected %q in slide1.xml, got %s", want, slide)
+		}
+	}
+
+	fillIdx := strings.Index(slide, "<a:solidFill")
+	latinIdx := strings.Index(slide, "<a:latin")
+	if fillIdx == -1 || latinIdx == -1 || fillIdx > latinIdx {
+		t.Errorf("expected a:solidFill before a:latin, got %s", slide)
+	}
+
+	if !strings.Contains(slide, `id="2"`) {
+		t.Errorf("expected the text box's shape id to start at 2, got %s", slide)
+	}
+}
+
+func TestAddTextBox_WithNoParagraphsStillEmitsOneEmptyParagraph(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, "<a:p></a:p>") && !strings.Contains(slide, "<a:p/>") {
+		t.Errorf("expected a fallback empty paragraph, got %s", slide)
 	}
 }
