@@ -1,0 +1,87 @@
+/*
+MIT License
+
+Copyright (c) 2026 Misael Monterroca
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+
+package opc
+
+import (
+	"fmt"
+	"sync"
+	"sync/atomic"
+)
+
+// IDGenerator generates unique, monotonically increasing IDs, keyed by an
+// arbitrary caller-chosen prefix (e.g. "rId", "image", "shape"). It is
+// thread-safe. Unlike a fixed set of named counters, a new prefix can be
+// used at any time without changing this type — content-schema-specific
+// counters (paragraph IDs, shape IDs, ...) belong to the consuming package,
+// not to opc.
+type IDGenerator struct {
+	mu       sync.Mutex
+	counters map[string]*atomic.Uint64
+}
+
+// NewIDGenerator creates a new ID generator.
+func NewIDGenerator() *IDGenerator {
+	return &IDGenerator{counters: make(map[string]*atomic.Uint64)}
+}
+
+func (g *IDGenerator) counter(prefix string) *atomic.Uint64 {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	c, ok := g.counters[prefix]
+	if !ok {
+		c = &atomic.Uint64{}
+		g.counters[prefix] = c
+	}
+	return c
+}
+
+// NextID returns the next ID for the given prefix, formatted as "<prefix><n>"
+// with n starting at 1.
+func (g *IDGenerator) NextID(prefix string) string {
+	n := g.counter(prefix).Add(1)
+	return fmt.Sprintf("%s%d", prefix, n)
+}
+
+// NextRelID returns the next relationship ID (e.g. "rId1", "rId2", ...).
+func (g *IDGenerator) NextRelID() string {
+	return g.NextID("rId")
+}
+
+// EnsureAtLeast ensures the counter for prefix is at least value, without
+// decreasing it. Used when hydrating relationships loaded from an existing
+// package, so newly generated IDs never collide with preserved ones.
+func (g *IDGenerator) EnsureAtLeast(prefix string, value uint64) {
+	c := g.counter(prefix)
+	for {
+		current := c.Load()
+		if current >= value {
+			return
+		}
+		if c.CompareAndSwap(current, value) {
+			return
+		}
+	}
+}
