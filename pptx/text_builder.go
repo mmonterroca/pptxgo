@@ -69,12 +69,24 @@ func (sr *ShapeRef) Border(c drawingml.Color, widthPoints float64) *ShapeRef {
 	return sr
 }
 
-// Rotation sets the shape's rotation, in degrees clockwise (e.g. 45, -90).
-// AddShape and AddTextBox always give a shape its own a:xfrm, so this is
-// never a no-op in practice.
+// Rotation sets the shape's rotation, in degrees clockwise (e.g. 45, -90;
+// any value works, including beyond a full turn — 405 is the same
+// rotation as 45). AddShape and AddTextBox always give a shape its own
+// a:xfrm, so this is never a no-op in practice.
 func (sr *ShapeRef) Rotation(degrees float64) *ShapeRef {
+	if math.IsNaN(degrees) || math.IsInf(degrees, 0) {
+		sr.pres.addErr(errors.InvalidArgument("Rotation", "degrees", degrees, "must be a finite number"))
+		return sr
+	}
 	if sr.spPr.Xfrm != nil {
-		sr.spPr.Xfrm.Rot = int(math.Round(degrees * 60000))
+		// Normalize to (-360, 360) before converting to 60,000ths of a
+		// degree (a:xfrm/@rot): rotation is inherently modular (405
+		// degrees looks identical to 45), so this changes nothing
+		// visually, but an un-normalized large input — Rotation(36000),
+		// say — would multiply out to a value ST_Angle's underlying
+		// xsd:int (32-bit signed) can't hold, corrupting the file
+		// silently since Save has no other way to detect it.
+		sr.spPr.Xfrm.Rot = int(math.Round(math.Mod(degrees, 360) * 60000))
 	}
 	return sr
 }
