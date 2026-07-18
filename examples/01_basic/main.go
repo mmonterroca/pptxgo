@@ -80,6 +80,7 @@ func main() {
 	shape := s.AddShape(pptx.ShapeEllipse, pptx.Inches(9.8), pptx.Inches(1.8), pptx.Inches(2.5), pptx.Inches(1.3)).
 		Fill(pptx.RGB(0x1F, 0x49, 0x7D)).
 		Border(pptx.RGB(0x44, 0x54, 0x6A), 1.0).
+		BorderDash(pptx.DashDash).
 		Rotation(15).
 		FlipH()
 	shape.AddParagraph().

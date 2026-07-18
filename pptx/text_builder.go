@@ -95,6 +95,26 @@ func (sr *ShapeRef) BorderScheme(scheme SchemeColor, widthPoints float64) *Shape
 	return sr
 }
 
+// BorderDash sets the shape's outline to a preset dash pattern (e.g.
+// DashDash, DashSysDot). Border or BorderScheme must be called first to give
+// the shape an outline to dash — calling BorderDash before either records an
+// error on the presentation (returned by Save) instead of silently no-oping,
+// the same contract requireXfrm gives Rotation/FlipH/FlipV. An unrecognized
+// preset is likewise recorded as an error and leaves the dash pattern unset.
+func (sr *ShapeRef) BorderDash(style DashStyle) *ShapeRef {
+	if sr.spPr.Ln == nil {
+		sr.pres.addErr(errors.InvalidArgument("BorderDash", "shape", "no outline",
+			"Border or BorderScheme must be called before BorderDash"))
+		return sr
+	}
+	if !IsValidDashStyle(style) {
+		sr.pres.addErr(errors.InvalidArgument("BorderDash", "style", style, "not a valid ST_PresetLineDashVal"))
+		return sr
+	}
+	sr.spPr.Ln.PrstDash = &drawingml.PrstDash{Val: string(style)}
+	return sr
+}
+
 // Rotation sets the shape's rotation, in degrees clockwise (e.g. 45, -90;
 // any value works, including beyond a full turn — 405 is the same
 // rotation as 45). AddShape and AddTextBox always give a shape its own

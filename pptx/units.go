@@ -146,6 +146,39 @@ const (
 	PlaceholderBody     PlaceholderType = "body"     // bulleted body text
 )
 
+// DashStyle names a preset line-dash pattern (a:prstDash's val attribute,
+// ST_PresetLineDashVal) for use with ShapeRef.BorderDash.
+type DashStyle string
+
+// Preset dash patterns, the complete ST_PresetLineDashVal enumeration.
+const (
+	DashSolid         DashStyle = "solid"
+	DashDot           DashStyle = "dot"
+	DashDash          DashStyle = "dash"
+	DashLgDash        DashStyle = "lgDash"
+	DashDashDot       DashStyle = "dashDot"
+	DashLgDashDot     DashStyle = "lgDashDot"
+	DashLgDashDotDot  DashStyle = "lgDashDotDot"
+	DashSysDash       DashStyle = "sysDash"
+	DashSysDot        DashStyle = "sysDot"
+	DashSysDashDot    DashStyle = "sysDashDot"
+	DashSysDashDotDot DashStyle = "sysDashDotDot"
+)
+
+// validDashStyles is the complete ST_PresetLineDashVal enumeration.
+var validDashStyles = map[DashStyle]bool{
+	DashSolid: true, DashDot: true, DashDash: true, DashLgDash: true,
+	DashDashDot: true, DashLgDashDot: true, DashLgDashDotDot: true,
+	DashSysDash: true, DashSysDot: true, DashSysDashDot: true,
+	DashSysDashDotDot: true,
+}
+
+// IsValidDashStyle reports whether style is one of ST_PresetLineDashVal's
+// 11 defined preset dash pattern names.
+func IsValidDashStyle(style DashStyle) bool {
+	return validDashStyles[style]
+}
+
 // PresetGeometry names a preset autoshape outline (a:prstGeom's prst
 // attribute, schema type ST_ShapeType) for use with Slide.AddShape. This is
 // a representative subset of the ~180 shapes ST_ShapeType allows; any other
