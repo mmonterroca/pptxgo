@@ -256,7 +256,13 @@ func (s *Slide) AddTable(rows, cols, x, y, w, h int) *Table {
 		},
 		Xfrm: &GraphicFrameXfrm{
 			Off: &drawingml.Off{X: x, Y: y},
-			Ext: &drawingml.Ext{Cx: w, Cy: h},
+			// The frame's own extent must equal the table's actual total
+			// size (the sum of column widths / row heights), not the raw
+			// w/h passed in: colW*cols and rowH*rows can be a few EMUs
+			// short of w/h when w/cols or h/rows doesn't divide evenly, and
+			// a:ext disagreeing with the real a:tblGrid/a:tr total is
+			// exactly the kind of mismatch PowerPoint "repairs" on load.
+			Ext: &drawingml.Ext{Cx: colW * cols, Cy: rowH * rows},
 		},
 		Graphic: drawingml.NewGraphic(&drawingml.GraphicData{URI: drawingml.GraphicDataURITable, Inner: tbl}),
 	}

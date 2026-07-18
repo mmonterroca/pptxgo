@@ -530,6 +530,25 @@ func TestAddTable_EmitsSchemaOrderedGraphicFrame(t *testing.T) {
 	}
 }
 
+func TestAddTable_GraphicFrameExtentMatchesTruncatedGridTotalNotRawWH(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	// 100 EMU / 3 cols = 33 EMU each (integer division), summing to 99 —
+	// 1 EMU short of the raw w=100 passed in. Likewise 100 EMU / 3 rows.
+	// The graphic frame's own a:ext must reflect the actual grid total
+	// (99), not the raw, unreachable 100 — a:ext disagreeing with the real
+	// column/row sum is exactly the kind of mismatch PowerPoint "repairs"
+	// (or a strict validator rejects) on load.
+	s.AddTable(3, 3, Inches(1), Inches(1), Emu(100), Emu(100))
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:ext cx="99" cy="99">`) {
+		t.Errorf("expected a:ext to match the truncated grid total (99 EMU), not the raw w/h (100 EMU), got %s", slide)
+	}
+}
+
 func TestTable_ColumnWidthAndRowHeightOverrideEvenSplit(t *testing.T) {
 	p := New()
 	s := p.AddSlide()
