@@ -171,6 +171,22 @@ func (t *Template) rawSlideBytes(pth string) ([]byte, error) {
 	return part.Raw, nil
 }
 
+// writeSlideBytes replaces the slide at path pth's raw bytes in place,
+// preserving its already-declared content type (looked up from the
+// existing part rather than assumed, so a foreign file's own declared type
+// — expected to be ContentTypeSlide, but never hardcoded as such — survives
+// unchanged). Re-adding a part at a path that already exists overwrites its
+// content without duplicating its position in the package's part order —
+// see opc.Package.AddRawPart/addPart.
+func (t *Template) writeSlideBytes(pth string, data []byte) error {
+	existing, ok := t.pkg.Part(pth)
+	if !ok {
+		return errors.NotFound("Template", pth)
+	}
+	t.pkg.AddRawPart(pth, existing.ContentType, data)
+	return nil
+}
+
 // OpenSlide is a handle onto one slide within an opened Template, returned
 // by Template.Slide/Slides.
 type OpenSlide struct {
