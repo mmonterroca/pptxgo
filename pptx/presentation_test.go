@@ -494,6 +494,76 @@ func TestBorder_BoundaryWidthsDoNotError(t *testing.T) {
 	}
 }
 
+func TestAddTable_EmitsSchemaOrderedGraphicFrame(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 3, Inches(1), Inches(1), Inches(9), Inches(2))
+	tbl.Cell(0, 0).Text("Q1")
+	tbl.Cell(0, 1).Text("Q2")
+	tbl.Cell(1, 0).Text("100")
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	nvIdx := strings.Index(slide, "<p:nvGraphicFramePr>")
+	xfrmIdx := strings.Index(slide, "<p:xfrm>")
+	graphicIdx := strings.Index(slide, "<a:graphic")
+	tblIdx := strings.Index(slide, "<a:tbl>")
+	tblGridIdx := strings.Index(slide, "<a:tblGrid>")
+	if nvIdx == -1 || xfrmIdx == -1 || graphicIdx == -1 || tblIdx == -1 || tblGridIdx == -1 {
+		t.Fatalf("expected nvGraphicFramePr, xfrm, graphic, tbl, and tblGrid all present, got %s", slide)
+	}
+	if !(nvIdx < xfrmIdx && xfrmIdx < graphicIdx && graphicIdx < tblIdx && tblIdx < tblGridIdx) {
+		t.Errorf("expected nvGraphicFramePr < xfrm < graphic < tbl < tblGrid order, got %s", slide)
+	}
+	if !strings.Contains(slide, `uri="http://schemas.openxmlformats.org/drawingml/2006/table"`) {
+		t.Errorf("expected the table graphicData URI, got %s", slide)
+	}
+	for _, want := range []string{"Q1", "Q2", "100"} {
+		if !strings.Contains(slide, want) {
+			t.Errorf("expected cell text %q, got %s", want, slide)
+		}
+	}
+	// 3 columns splitting 9in (8229600 EMU) evenly -> 2743200 EMU each.
+	if !strings.Contains(slide, `<a:gridCol w="2743200">`) {
+		t.Errorf("expected evenly-split column width 2743200 EMU, got %s", slide)
+	}
+}
+
+func TestTable_ColumnWidthAndRowHeightOverrideEvenSplit(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 2, Inches(1), Inches(1), Inches(4), Inches(2))
+	tbl.ColumnWidth(0, Inches(3))
+	tbl.RowHeight(0, Inches(1.5))
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:gridCol w="2743200">`) { // 3in
+		t.Errorf("expected overridden column 0 width 2743200 EMU (3in), got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:tr h="1371600">`) { // 1.5in
+		t.Errorf("expected overridden row 0 height 1371600 EMU (1.5in), got %s", slide)
+	}
+}
+
+func TestAddTable_DefaultsToFirstRowBandedStyle(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTable(1, 1, Inches(1), Inches(1), Inches(2), Inches(1))
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `firstRow="1"`) || !strings.Contains(slide, `bandRow="1"`) {
+		t.Errorf("expected firstRow and bandRow both set, got %s", slide)
+	}
+	if !strings.Contains(slide, "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}") {
+		t.Errorf("expected the default table style GUID, got %s", slide)
+	}
+}
+
 // pngBytes returns a solid-color w x h PNG, encoded in memory.
 func pngBytes(t *testing.T, w, h int) []byte {
 	t.Helper()

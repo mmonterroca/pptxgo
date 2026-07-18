@@ -66,6 +66,22 @@ func main() {
 	s.AddImageFromBytes(logoPNG(), pptx.Inches(1), pptx.Inches(3.5)).
 		Border(pptx.RGB(0x44, 0x54, 0x6A), 1.0)
 
+	tbl := s.AddTable(3, 3, pptx.Inches(6), pptx.Inches(3.5), pptx.Inches(6), pptx.Inches(2.25))
+	tbl.ColumnWidth(0, pptx.Inches(2.4))
+	headers := []string{"Region", "Q3 Revenue", "YoY"}
+	for c, h := range headers {
+		tbl.Cell(0, c).Text(h).Bold()
+	}
+	rows := [][]string{
+		{"North America", "$4.2M", "+9%"},
+		{"EMEA", "$2.8M", "+15%"},
+	}
+	for r, row := range rows {
+		for c, v := range row {
+			tbl.Cell(r+1, c).Text(v)
+		}
+	}
+
 	f, err := os.Create("01_basic_demo.pptx")
 	if err != nil {
 		log.Fatal(err)

@@ -190,3 +190,60 @@ func (s *Slide) addPicture(data []byte, x, y, w, h int, useExplicitSize bool) *P
 
 	return &PictureRef{pres: s.pres, spPr: spPr}
 }
+
+// AddTable adds a rows x cols table at the given position and overall size
+// (x, y, w, h, all in EMUs — see the Inches/Points helpers), with column
+// widths and row heights initially split evenly across w and h, and
+// returns a handle for setting cell content and column/row sizing. Every
+// cell starts with an empty txBody, the same "always at least one a:p"
+// schema guarantee AddTextBox gives a fresh text box (drawingml.TextBody's
+// own MarshalXML fills it in even without an explicit AddParagraph call).
+//
+// Unlike a shape or picture, a table is wrapped in a p:graphicFrame, not a
+// p:sp — a:tbl content lives entirely inline in the slide's own XML, with
+// no separate part or relationship the way an image needs one.
+func (s *Slide) AddTable(rows, cols, x, y, w, h int) *Table {
+	id := s.nextShapeID
+	s.nextShapeID++
+
+	colW := w / cols
+	grid := &drawingml.TblGrid{}
+	for c := 0; c < cols; c++ {
+		grid.GridCol = append(grid.GridCol, &drawingml.GridCol{W: colW})
+	}
+
+	rowH := h / rows
+	tbl := &drawingml.Tbl{
+		TblPr: &drawingml.TblPr{
+			FirstRow:     true,
+			BandRow:      true,
+			TableStyleID: &drawingml.TableStyleID{Value: drawingml.DefaultTableStyleID},
+		},
+		TblGrid: grid,
+	}
+	for r := 0; r < rows; r++ {
+		tr := &drawingml.Tr{H: rowH}
+		for c := 0; c < cols; c++ {
+			tr.Tcs = append(tr.Tcs, &drawingml.Tc{
+				TxBody: &drawingml.TextBody{BodyPr: &drawingml.BodyPr{}, LstStyle: &drawingml.LstStyle{}},
+			})
+		}
+		tbl.Trs = append(tbl.Trs, tr)
+	}
+
+	frame := &GraphicFrame{
+		NvGraphicFramePr: &NvGraphicFramePr{
+			CNvPr:             &CNvPr{ID: id, Name: fmt.Sprintf("Table %d", id)},
+			CNvGraphicFramePr: &CNvGraphicFramePr{},
+			NvPr:              &NvPr{},
+		},
+		Xfrm: &GraphicFrameXfrm{
+			Off: &drawingml.Off{X: x, Y: y},
+			Ext: &drawingml.Ext{Cx: w, Cy: h},
+		},
+		Graphic: drawingml.NewGraphic(&drawingml.GraphicData{URI: drawingml.GraphicDataURITable, Inner: tbl}),
+	}
+	s.spTree.Content = append(s.spTree.Content, frame)
+
+	return &Table{pres: s.pres, tbl: tbl, rows: rows, cols: cols}
+}
