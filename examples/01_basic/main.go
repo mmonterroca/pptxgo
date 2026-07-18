@@ -25,20 +25,46 @@ SOFTWARE.
 package main
 
 import (
+	"bytes"
+	"image"
+	"image/color"
+	"image/png"
 	"log"
 	"os"
 
 	"github.com/mmonterroca/pptxgo/pptx"
 )
 
+// logoPNG generates a small solid-color PNG in memory, standing in for a
+// real logo/photo asset so this demo doesn't need to commit a binary file.
+func logoPNG() []byte {
+	img := image.NewRGBA(image.Rect(0, 0, 160, 100))
+	for y := 0; y < 100; y++ {
+		for x := 0; x < 160; x++ {
+			img.Set(x, y, color.RGBA{R: 0x1F, G: 0x49, B: 0x7D, A: 0xFF})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		log.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
 func main() {
 	p := pptx.New()
 
 	s := p.AddSlide()
-	tb := s.AddTextBox(pptx.Inches(1), pptx.Inches(1), pptx.Inches(8), pptx.Inches(2))
+
+	tb := s.AddTextBox(pptx.Inches(1), pptx.Inches(1), pptx.Inches(8), pptx.Inches(2)).
+		Fill(pptx.RGB(0xE7, 0xE6, 0xE6)).
+		Border(pptx.RGB(0x1F, 0x49, 0x7D), 1.5)
 	tb.AddParagraph().
 		Text("Quarterly Results").Bold().FontSize(32).Font("Calibri").Color(pptx.RGB(0x1F, 0x49, 0x7D)).
 		Alignment(pptx.AlignCenter)
+
+	s.AddImageFromBytes(logoPNG(), pptx.Inches(1), pptx.Inches(3.5)).
+		Border(pptx.RGB(0x44, 0x54, 0x6A), 1.0)
 
 	f, err := os.Create("01_basic_demo.pptx")
 	if err != nil {

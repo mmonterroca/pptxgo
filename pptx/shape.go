@@ -51,12 +51,14 @@ type NvSpPr struct {
 
 // SpPr is p:spPr (CT_ShapeProperties): the shape's geometry and visual
 // properties. A free text box needs an explicit a:xfrm — without one it has
-// no position on the slide. Fill is optional and, for now, unset by every
-// builder path; it exists so a solid shape-background fill can be wired in
-// without another schema change.
+// no position on the slide. Field order mirrors the schema:
+// xfrm -> prstGeom -> (fill group) -> ln. This same struct is reused as-is
+// for a p:pic's p:spPr (Fill stays nil there — a picture's fill is its
+// blipFill, not a:solidFill).
 type SpPr struct {
 	XMLName  xml.Name             `xml:"p:spPr"`
 	Xfrm     *drawingml.Xfrm      `xml:"a:xfrm,omitempty"`
 	PrstGeom *drawingml.PrstGeom  `xml:"a:prstGeom,omitempty"`
 	Fill     *drawingml.SolidFill `xml:"a:solidFill,omitempty"`
+	Ln       *drawingml.Ln        `xml:"a:ln,omitempty"`
 }

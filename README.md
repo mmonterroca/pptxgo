@@ -9,24 +9,34 @@ Microsoft PowerPoint .pptx (OOXML / PresentationML) generation in Go.
 
 **Early development.** The OPC packaging layer and drawingml primitives are
 in place; `pptx.New()` builds a presentation's theme, slide master, and
-slide layout, and `AddSlide`/`AddTextBox`/`AddParagraph` add formatted text
-to it — verified against both the Open XML SDK's schema validator and
-LibreOffice Impress (see Verification below). Images, tables, and templates
-follow.
+slide layout. `AddSlide` adds slides; `AddTextBox`/`AddParagraph` add
+formatted text; `AddImage` and its variants embed PNG/JPEG/GIF images
+(`p:pic`, with automatic format and size detection); and text boxes and
+images can both take a solid background `Fill` and a `Border` — all
+verified against both the Open XML SDK's schema validator and LibreOffice
+Impress (see Verification below). Tables and templates follow.
 
 ```go
 p := pptx.New()
 s := p.AddSlide()
-tb := s.AddTextBox(pptx.Inches(1), pptx.Inches(1), pptx.Inches(8), pptx.Inches(2))
+
+tb := s.AddTextBox(pptx.Inches(1), pptx.Inches(1), pptx.Inches(8), pptx.Inches(2)).
+    Fill(pptx.RGB(0xE7, 0xE6, 0xE6)).
+    Border(pptx.RGB(0x1F, 0x49, 0x7D), 1.5)
 tb.AddParagraph().
     Text("Quarterly Results").Bold().FontSize(32).Font("Calibri").Color(pptx.RGB(0x1F, 0x49, 0x7D)).
     Alignment(pptx.AlignCenter)
 
+// Format and pixel dimensions are auto-detected (96 DPI); use
+// AddImageWithSize/AddImageFromBytesWithSize for exact control.
+s.AddImage("logo.png", pptx.Inches(1), pptx.Inches(3.5)).
+    Border(pptx.RGB(0x44, 0x54, 0x6A), 1.0)
+
 f, _ := os.Create("presentation.pptx")
 if err := p.Save(f); err != nil {
     // Save returns the first error accumulated by any builder call, e.g. an
-    // out-of-range FontSize — long fluent chains stay usable without an
-    // `if err != nil` after every method.
+    // out-of-range FontSize or a missing image file — long fluent chains
+    // stay usable without an `if err != nil` after every method.
     log.Fatal(err)
 }
 ```
