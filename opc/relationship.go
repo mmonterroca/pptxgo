@@ -70,11 +70,11 @@ func NewRelationshipManager() *RelationshipManager {
 // Add adds a new relationship and returns its generated ID.
 //
 // It does not deduplicate: adding the same target twice yields two distinct
-// rIds and two <Relationship> entries. That is intentional today (OPC permits
-// it and nothing in the walking skeleton reuses a target), but once the media
-// layer lands, an image referenced from several slides would otherwise be
-// embedded once per reference. TODO(media-phase): before embedding media,
-// dedup via GetByTarget so a reused image maps to one part and one rId.
+// rIds and two <Relationship> entries. That is intentional here — a caller
+// may legitimately want two independent relationship entries to the same
+// target (e.g. two conceptually distinct hyperlinks that happen to point
+// at the same URL) — but see AddImage, which does dedup, since two
+// pictures on one slide sharing a media part should share one rId too.
 func (rm *RelationshipManager) Add(relType, target, targetMode string) (string, error) {
 	if relType == "" {
 		return "", errors.InvalidArgument("RelationshipManager.Add", "relType", relType, "relationship type cannot be empty")
@@ -107,8 +107,16 @@ func normalizeTargetMode(mode string) string {
 	return mode
 }
 
-// AddImage adds an image relationship (Internal, RelTypeImage).
+// AddImage adds an image relationship (Internal, RelTypeImage), reusing an
+// existing one if this owner already has an image relationship to the same
+// target. Without this, deduping the underlying media part (see
+// pptx.Presentation's content-hash cache) would still leave every
+// AddImage* call on the same slide creating its own redundant
+// relationship to that one shared part.
 func (rm *RelationshipManager) AddImage(target string) (string, error) {
+	if rel, err := rm.GetByTarget(target); err == nil && rel.Type == RelTypeImage {
+		return rel.ID, nil
+	}
 	return rm.Add(RelTypeImage, target, "Internal")
 }
 

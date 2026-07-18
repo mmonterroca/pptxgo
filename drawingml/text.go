@@ -229,15 +229,29 @@ type Br struct {
 // RPr is a:rPr (CT_TextCharacterProperties): run-level character
 // formatting. Field order mirrors the schema: attributes (sz, b, i, u)
 // first, then the fill group (SolidFill) ahead of the font group (Latin) —
-// the validator rejects a:latin emitted before a:solidFill.
+// the validator rejects a:latin emitted before a:solidFill — and finally
+// HlinkClick, which the schema places after the font group.
 type RPr struct {
-	XMLName   xml.Name   `xml:"a:rPr"`
-	Sz        int        `xml:"sz,attr,omitempty"` // hundredths of a point
-	B         OnOff      `xml:"b,attr,omitempty"`
-	I         OnOff      `xml:"i,attr,omitempty"`
-	U         string     `xml:"u,attr,omitempty"` // ST_TextUnderlineType, e.g. "sng"
-	SolidFill *SolidFill `xml:"a:solidFill,omitempty"`
-	Latin     *Latin     `xml:"a:latin,omitempty"`
+	XMLName    xml.Name    `xml:"a:rPr"`
+	Sz         int         `xml:"sz,attr,omitempty"` // hundredths of a point
+	B          OnOff       `xml:"b,attr,omitempty"`
+	I          OnOff       `xml:"i,attr,omitempty"`
+	U          string      `xml:"u,attr,omitempty"` // ST_TextUnderlineType, e.g. "sng"
+	SolidFill  *SolidFill  `xml:"a:solidFill,omitempty"`
+	Latin      *Latin      `xml:"a:latin,omitempty"`
+	HlinkClick *HlinkClick `xml:"a:hlinkClick,omitempty"`
+}
+
+// HlinkClick is a:hlinkClick (CT_Hyperlink): a run's click-through
+// hyperlink, referencing its target by relationship ID — scoped to
+// whichever part owns this run (a slide's own .rels), the same way
+// Blip.Embed references media. It carries its own xmlns:r declaration for
+// the same reason Blip does: self-contained regardless of what its
+// ancestor elements have declared.
+type HlinkClick struct {
+	XMLName xml.Name `xml:"a:hlinkClick"`
+	XmlnsR  string   `xml:"xmlns:r,attr"`
+	RID     string   `xml:"r:id,attr"`
 }
 
 // OnOff models CT_TextCharacterProperties' on/off attributes (b, i): schema
