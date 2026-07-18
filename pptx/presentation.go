@@ -26,6 +26,7 @@ package pptx
 
 import (
 	"io"
+	"strconv"
 
 	"github.com/mmonterroca/pptxgo/drawingml"
 	"github.com/mmonterroca/pptxgo/opc"
@@ -50,16 +51,20 @@ const (
 	firstSldID       = 256
 )
 
-// Presentation is a minimal, single-slide PresentationML document: one
-// theme, one slide master, one slide layout, and one blank slide — the
-// walking skeleton. It exists to prove the opc.Package plumbing produces a
-// file PowerPoint accepts before any real content (text, images, tables)
-// is layered on top in later phases.
+// Presentation is a PresentationML document under construction: one theme,
+// one slide master, and one slide layout — the structural backbone every
+// presentation needs regardless of slide count — plus whatever slides
+// AddSlide adds. New() starts with zero slides.
 type Presentation struct {
-	pkg *opc.Package
+	pkg        *opc.Package
+	pres       *XMLPresentation
+	presRels   *opc.RelationshipManager
+	slideCount int
+	errs       []error
 }
 
-// New builds a minimal, single-blank-slide presentation.
+// New builds a presentation with its theme, slide master, and slide layout
+// already wired, and no slides. Call AddSlide to add content.
 func New() *Presentation {
 	pkg := opc.NewPackage()
 
@@ -102,42 +107,31 @@ func New() *Presentation {
 		panic(err)
 	}
 
-	slide1 := SlidePath(1)
-	pkg.AddPart(slide1, ContentTypeSlide, &XMLSlide{
-		XmlnsA:    drawingml.NamespaceMain,
-		XmlnsR:    drawingml.NamespaceRelationships,
-		XmlnsP:    NamespaceMain,
-		CSld:      &CSld{SpTree: NewEmptySpTree()},
-		ClrMapOvr: NewClrMapOvrInherit(),
-	})
-	if _, err := pkg.Relationships(slide1).Add(RelTypeSlideLayout, "../slideLayouts/slideLayout1.xml", "Internal"); err != nil {
-		panic(err)
-	}
-
 	// Same pattern: add the presentation's relationships and reference the
-	// master and slide by the rIds Add returns, not by hardcoded literals.
+	// master by the rId Add returns, not a hardcoded literal. Slides (and
+	// their rIds, threaded into SldIdLst) are added later by AddSlide.
 	presRels := pkg.Relationships(PathPresentation)
 	masterRID, err := presRels.Add(RelTypeSlideMaster, "slideMasters/slideMaster1.xml", "Internal")
 	if err != nil {
 		panic(err)
 	}
-	slideRID, err := presRels.Add(RelTypeSlide, "slides/slide1.xml", "Internal")
-	if err != nil {
-		panic(err)
-	}
-	pkg.AddPart(PathPresentation, ContentTypePresentation, &XMLPresentation{
+
+	// SldIdLst starts nil: with zero slides added, encoding/xml writes
+	// nothing for a nil pointer field, which is schema-valid (minOccurs=0).
+	// AddSlide allocates it lazily on the first call. Marshaling happens
+	// lazily too (only at Save/opc.Write time), so mutating *pres after
+	// AddPart below is exactly what makes appending slides later work.
+	pres := &XMLPresentation{
 		XmlnsA: drawingml.NamespaceMain,
 		XmlnsR: drawingml.NamespaceRelationships,
 		XmlnsP: NamespaceMain,
 		SldMasterIdLst: &SldMasterIdLst{
 			Entries: []*SldMasterId{{ID: firstSldMasterID, RID: masterRID}},
 		},
-		SldIdLst: &SldIdLst{
-			Entries: []*SldId{{ID: firstSldID, RID: slideRID}},
-		},
 		SldSz:   &SldSz{Cx: slideWidthEMU, Cy: slideHeightEMU, Type: "screen16x9"},
 		NotesSz: &NotesSz{Cx: notesWidthEMU, Cy: notesHeightEMU},
-	})
+	}
+	pkg.AddPart(PathPresentation, ContentTypePresentation, pres)
 
 	pkg.AddPart(PathCoreProps, opc.ContentTypeCoreProperties, NewCoreProperties("", ""))
 	pkg.AddPart(PathAppProps, opc.ContentTypeExtendedProperties, NewAppProperties())
@@ -153,10 +147,60 @@ func New() *Presentation {
 		panic(err)
 	}
 
-	return &Presentation{pkg: pkg}
+	return &Presentation{pkg: pkg, pres: pres, presRels: presRels}
 }
 
-// Save writes the presentation to w as a .pptx file.
+// AddSlide appends a new, empty slide — using the presentation's one slide
+// layout — and returns a handle for adding shapes to it.
+func (p *Presentation) AddSlide() *Slide {
+	p.slideCount++
+	n := p.slideCount
+	path := SlidePath(n)
+
+	spTree := NewEmptySpTree()
+	p.pkg.AddPart(path, ContentTypeSlide, &XMLSlide{
+		XmlnsA:    drawingml.NamespaceMain,
+		XmlnsR:    drawingml.NamespaceRelationships,
+		XmlnsP:    NamespaceMain,
+		CSld:      &CSld{SpTree: spTree},
+		ClrMapOvr: NewClrMapOvrInherit(),
+	})
+	if _, err := p.pkg.Relationships(path).Add(RelTypeSlideLayout, "../slideLayouts/slideLayout1.xml", "Internal"); err != nil {
+		panic(err) // static, well-formed arguments; cannot fail
+	}
+
+	slideRID, err := p.presRels.Add(RelTypeSlide, "slides/slide"+strconv.Itoa(n)+".xml", "Internal")
+	if err != nil {
+		panic(err)
+	}
+
+	if p.pres.SldIdLst == nil {
+		p.pres.SldIdLst = &SldIdLst{}
+	}
+	p.pres.SldIdLst.Entries = append(p.pres.SldIdLst.Entries, &SldId{
+		ID:  firstSldID + uint32(n-1),
+		RID: slideRID,
+	})
+
+	return &Slide{pres: p, spTree: spTree, nextShapeID: firstShapeID}
+}
+
+// addErr records a user-input validation error raised deep in a fluent
+// chain (see text_builder.go), where returning early would break chaining.
+// Save returns the first one recorded. Nil errs are ignored so call sites
+// don't need their own nil check.
+func (p *Presentation) addErr(err error) {
+	if err != nil {
+		p.errs = append(p.errs, err)
+	}
+}
+
+// Save writes the presentation to w as a .pptx file. If any fluent builder
+// call recorded a validation error, Save returns the first one instead of
+// writing.
 func (p *Presentation) Save(w io.Writer) error {
+	if len(p.errs) > 0 {
+		return p.errs[0]
+	}
 	return p.pkg.Write(w)
 }

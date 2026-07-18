@@ -34,6 +34,12 @@ import (
 func main() {
 	p := pptx.New()
 
+	s := p.AddSlide()
+	tb := s.AddTextBox(pptx.Inches(1), pptx.Inches(1), pptx.Inches(8), pptx.Inches(2))
+	tb.AddParagraph().
+		Text("Quarterly Results").Bold().FontSize(32).Font("Calibri").Color(pptx.RGB(0x1F, 0x49, 0x7D)).
+		Alignment(pptx.AlignCenter)
+
 	f, err := os.Create("01_basic_demo.pptx")
 	if err != nil {
 		log.Fatal(err)

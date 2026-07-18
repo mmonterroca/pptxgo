@@ -135,6 +135,21 @@ type GrpSpPr struct {
 	XMLName xml.Name `xml:"p:grpSpPr"`
 }
 
+// CNvSpPr is p:cNvSpPr, non-visual drawing properties specific to shapes.
+// TxBox marks the shape as a text box rather than an auto-shape — required
+// for PowerPoint to treat a bare rectangle as a text container.
+type CNvSpPr struct {
+	XMLName xml.Name `xml:"p:cNvSpPr"`
+	TxBox   bool     `xml:"txBox,attr,omitempty"`
+}
+
+// NvPr is p:nvPr: placeholder-linkage information shared by every shape's
+// non-visual properties. Always empty until placeholders (p:ph) land in a
+// later phase.
+type NvPr struct {
+	XMLName xml.Name `xml:"p:nvPr"`
+}
+
 // ClrMapOvr is p:clrMapOvr, present on every slide and slide layout: it
 // either inherits the owning master's color map verbatim or overrides it.
 // The walking skeleton always inherits.

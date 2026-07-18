@@ -8,15 +8,27 @@ Microsoft PowerPoint .pptx (OOXML / PresentationML) generation in Go.
 ## Status
 
 **Early development.** The OPC packaging layer and drawingml primitives are
-in place, and `pptx.New()` produces a minimal, single-blank-slide
-presentation — verified against both the Open XML SDK's schema validator
-and LibreOffice Impress (see Verification below). Text, images, tables, and
-templates follow.
+in place; `pptx.New()` builds a presentation's theme, slide master, and
+slide layout, and `AddSlide`/`AddTextBox`/`AddParagraph` add formatted text
+to it — verified against both the Open XML SDK's schema validator and
+LibreOffice Impress (see Verification below). Images, tables, and templates
+follow.
 
 ```go
 p := pptx.New()
+s := p.AddSlide()
+tb := s.AddTextBox(pptx.Inches(1), pptx.Inches(1), pptx.Inches(8), pptx.Inches(2))
+tb.AddParagraph().
+    Text("Quarterly Results").Bold().FontSize(32).Font("Calibri").Color(pptx.RGB(0x1F, 0x49, 0x7D)).
+    Alignment(pptx.AlignCenter)
+
 f, _ := os.Create("presentation.pptx")
-p.Save(f)
+if err := p.Save(f); err != nil {
+    // Save returns the first error accumulated by any builder call, e.g. an
+    // out-of-range FontSize — long fluent chains stay usable without an
+    // `if err != nil` after every method.
+    log.Fatal(err)
+}
 ```
 
 ## Design
