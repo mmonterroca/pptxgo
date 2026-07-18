@@ -58,6 +58,7 @@ func (sr *ShapeRef) AddParagraph() *Paragraph {
 // Fill sets the shape's background to a solid color.
 func (sr *ShapeRef) Fill(c drawingml.Color) *ShapeRef {
 	sr.spPr.NoFill = nil
+	sr.spPr.Gradient = nil
 	sr.spPr.Fill = drawingml.NewSolidFillRGB(c)
 	return sr
 }
@@ -66,7 +67,25 @@ func (sr *ShapeRef) Fill(c drawingml.Color) *ShapeRef {
 // scheme slot (e.g. SchemeAccent1) rather than an explicit RGB value.
 func (sr *ShapeRef) FillScheme(scheme SchemeColor) *ShapeRef {
 	sr.spPr.NoFill = nil
+	sr.spPr.Gradient = nil
 	sr.spPr.Fill = drawingml.NewSolidFillScheme(string(scheme))
+	return sr
+}
+
+// GradientFill sets the shape's background to a linear gradient blending
+// through the given color stops (at least 2 required — the schema's own
+// minimum), its axis rotated by angleDegrees clockwise (the same convention
+// as Rotation: 0 runs left-to-right, 90 top-to-bottom). An invalid angle or
+// an out-of-range stop is recorded as an error on the presentation
+// (returned by Save) and leaves the fill unset.
+func (sr *ShapeRef) GradientFill(angleDegrees float64, stops ...GradientStop) *ShapeRef {
+	g, ok := newGradFill(sr.pres, angleDegrees, stops)
+	if !ok {
+		return sr
+	}
+	sr.spPr.Fill = nil
+	sr.spPr.NoFill = nil
+	sr.spPr.Gradient = g
 	return sr
 }
 
@@ -74,6 +93,7 @@ func (sr *ShapeRef) FillScheme(scheme SchemeColor) *ShapeRef {
 // Fill, which lets the shape inherit one from its style or layout instead.
 func (sr *ShapeRef) NoFill() *ShapeRef {
 	sr.spPr.Fill = nil
+	sr.spPr.Gradient = nil
 	sr.spPr.NoFill = &drawingml.NoFill{}
 	return sr
 }
@@ -268,6 +288,43 @@ func validatedLineWidthEMU(pres *Presentation, widthPoints float64) (emu int, ok
 		return 0, false
 	}
 	return int(math.Round(widthPoints * drawingml.EMUsPerPoint)), true
+}
+
+// newGradFill builds a linear a:gradFill from an angle in degrees clockwise
+// (the same convention as Rotation, converted to 60,000ths of a degree with
+// math.Round — truncating risks landing on the wrong 60,000th, the same
+// class of float64 precision issue Rotation and validatedLineWidthEMU
+// already guard against) and a list of color stops, shared by
+// ShapeRef.GradientFill and Slide.BackgroundGradient. Requires at least 2
+// stops (CT_GradientStopList's own schema minimum) and each stop's Pos
+// within [0, 100]; a finite-but-invalid angle, too few stops, or an
+// out-of-range stop is recorded as an error on pres and this returns
+// ok=false, leaving the caller's fill unset.
+func newGradFill(pres *Presentation, angleDegrees float64, stops []GradientStop) (g *drawingml.GradFill, ok bool) {
+	if math.IsNaN(angleDegrees) || math.IsInf(angleDegrees, 0) {
+		pres.addErr(errors.InvalidArgument("GradientFill", "angleDegrees", angleDegrees, "must be a finite number"))
+		return nil, false
+	}
+	if len(stops) < 2 {
+		pres.addErr(errors.InvalidArgument("GradientFill", "stops", len(stops), "a gradient needs at least 2 color stops"))
+		return nil, false
+	}
+
+	gs := make([]*drawingml.Gs, len(stops))
+	for i, s := range stops {
+		if math.IsNaN(s.Pos) || math.IsInf(s.Pos, 0) || s.Pos < 0 || s.Pos > 100 {
+			pres.addErr(errors.InvalidArgument("GradientFill", "stops[].Pos", s.Pos, "must be in [0, 100]"))
+			return nil, false
+		}
+		gs[i] = &drawingml.Gs{Pos: int(math.Round(s.Pos * 1000)), SrgbClr: &drawingml.SrgbClr{Val: drawingml.ToHex(s.Color)}}
+	}
+
+	ang := int(math.Round(math.Mod(angleDegrees, 360) * 60000))
+	return &drawingml.GradFill{
+		RotWithShape: true,
+		GsLst:        &drawingml.GsLst{Gs: gs},
+		Lin:          &drawingml.Lin{Ang: ang},
+	}, true
 }
 
 // Paragraph is a handle onto a single a:p, returned by TextBox.AddParagraph.

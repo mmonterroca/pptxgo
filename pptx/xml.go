@@ -115,9 +115,13 @@ type Bg struct {
 }
 
 // BgPr is p:bgPr (CT_BackgroundProperties): the background's own fill.
+// Fill and Gradient are the schema's EG_FillProperties choice: at most one
+// should ever be set — Slide.Background/BackgroundScheme/BackgroundGradient
+// enforce that by clearing the other whenever one is set.
 type BgPr struct {
-	XMLName xml.Name             `xml:"p:bgPr"`
-	Fill    *drawingml.SolidFill `xml:"a:solidFill,omitempty"`
+	XMLName  xml.Name             `xml:"p:bgPr"`
+	Fill     *drawingml.SolidFill `xml:"a:solidFill,omitempty"`
+	Gradient *drawingml.GradFill  `xml:"a:gradFill,omitempty"`
 }
 
 // SpTree is p:spTree, the shape tree: the root container for every visible

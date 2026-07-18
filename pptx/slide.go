@@ -74,6 +74,18 @@ func (s *Slide) BackgroundScheme(scheme SchemeColor) *Slide {
 	return s
 }
 
+// BackgroundGradient sets the slide's own background to a linear gradient —
+// see ShapeRef.GradientFill for the angle convention, stop requirements,
+// and error-accumulation behavior on an invalid angle or stop.
+func (s *Slide) BackgroundGradient(angleDegrees float64, stops ...GradientStop) *Slide {
+	g, ok := newGradFill(s.pres, angleDegrees, stops)
+	if !ok {
+		return s
+	}
+	s.cSld.Bg = &Bg{BgPr: &BgPr{Gradient: g}}
+	return s
+}
+
 // AddTextBox adds a text-box shape at the given position and size (x, y, w,
 // h, all in EMUs — see the Inches/Points helpers) and returns a handle for
 // adding paragraphs to it. It is addShape with a rect outline and the

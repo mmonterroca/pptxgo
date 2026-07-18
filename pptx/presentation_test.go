@@ -705,6 +705,87 @@ func TestShapeRef_NoFillThenFillClearsNoFill(t *testing.T) {
 	}
 }
 
+func TestShapeRef_GradientFillEmitsGradFillWithStopsAndAngle(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		GradientFill(90, GradientStop{Color: RGB(0xFF, 0, 0), Pos: 0}, GradientStop{Color: RGB(0, 0, 0xFF), Pos: 100})
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:gradFill rotWithShape="1">`) {
+		t.Errorf("expected a:gradFill, got %s", slide)
+	}
+	firstPosIdx := strings.Index(slide, `<a:gs pos="0">`)
+	secondPosIdx := strings.Index(slide, `<a:gs pos="100000">`)
+	if firstPosIdx == -1 || secondPosIdx == -1 || firstPosIdx > secondPosIdx {
+		t.Errorf("expected pos=0 stop before pos=100000 stop, got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:srgbClr val="FF0000">`) {
+		t.Errorf("expected first stop's color FF0000, got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:srgbClr val="0000FF">`) {
+		t.Errorf("expected second stop's color 0000FF, got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:lin ang="5400000">`) {
+		t.Errorf("expected 90deg -> 5400000 (90 * 60000), got %s", slide)
+	}
+}
+
+func TestShapeRef_GradientFillClearsSolidFillAndNoFill(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		Fill(RGB(0, 0xFF, 0)).
+		GradientFill(0, GradientStop{Color: RGB(0xFF, 0, 0), Pos: 0}, GradientStop{Color: RGB(0, 0, 0xFF), Pos: 100})
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if strings.Contains(slide, "a:solidFill") {
+		t.Errorf("expected GradientFill to clear the earlier Fill call, got %s", slide)
+	}
+	if !strings.Contains(slide, "a:gradFill") {
+		t.Errorf("expected a:gradFill present, got %s", slide)
+	}
+}
+
+func TestShapeRef_GradientFillTooFewStopsAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		GradientFill(0, GradientStop{Color: RGB(0xFF, 0, 0), Pos: 0})
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated too-few-stops error")
+	}
+}
+
+func TestShapeRef_GradientFillStopPosOutOfRangeAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		GradientFill(0, GradientStop{Color: RGB(0xFF, 0, 0), Pos: -1}, GradientStop{Color: RGB(0, 0, 0xFF), Pos: 100})
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated out-of-range stop error")
+	}
+}
+
+func TestSlide_BackgroundGradientEmitsGradFillOnBgPr(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.BackgroundGradient(45, GradientStop{Color: RGB(0, 0, 0), Pos: 0}, GradientStop{Color: RGB(0xFF, 0xFF, 0xFF), Pos: 100})
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, "<p:bgPr>") || !strings.Contains(slide, "a:gradFill") {
+		t.Errorf("expected p:bgPr with a:gradFill, got %s", slide)
+	}
+}
+
 func TestParagraph_ColorSchemeEmitsSchemeClr(t *testing.T) {
 	p := New()
 	s := p.AddSlide()

@@ -146,6 +146,16 @@ const (
 	PlaceholderBody     PlaceholderType = "body"     // bulleted body text
 )
 
+// GradientStop is one color stop within a linear gradient (see
+// ShapeRef.GradientFill / Slide.BackgroundGradient): a color at a position
+// along the gradient's axis. Pos is a percentage from 0 (the gradient's
+// start) to 100 (its end) — supply stops in ascending Pos order for a
+// well-formed gradient; nothing enforces that order itself.
+type GradientStop struct {
+	Color drawingml.Color
+	Pos   float64
+}
+
 // DashStyle names a preset line-dash pattern (a:prstDash's val attribute,
 // ST_PresetLineDashVal) for use with ShapeRef.BorderDash.
 type DashStyle string

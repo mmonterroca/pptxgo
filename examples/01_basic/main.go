@@ -63,6 +63,14 @@ func main() {
 		Text("Q3 Update").Bold().FontSize(14).Font("Calibri").ColorScheme(pptx.SchemeLight1).
 		Alignment(pptx.AlignCenter)
 
+	trending := s.AddShape(pptx.ShapeRoundRect, pptx.Inches(11.5), pptx.Inches(1), pptx.Inches(1.6), pptx.Inches(0.6)).
+		GradientFill(45,
+			pptx.GradientStop{Color: pptx.RGB(0xED, 0x7D, 0x31), Pos: 0},
+			pptx.GradientStop{Color: pptx.RGB(0xFF, 0xC0, 0x00), Pos: 100})
+	trending.AddParagraph().
+		Text("Trending Up").Bold().FontSize(14).Font("Calibri").Color(pptx.RGB(0xFF, 0xFF, 0xFF)).
+		Alignment(pptx.AlignCenter)
+
 	tb := s.AddTextBox(pptx.Inches(1), pptx.Inches(1), pptx.Inches(8), pptx.Inches(2)).
 		Fill(pptx.RGB(0xE7, 0xE6, 0xE6)).
 		Border(pptx.RGB(0x1F, 0x49, 0x7D), 1.5)
@@ -132,7 +140,10 @@ func main() {
 	// their geometry from slideLayout3.xml's own title/body placeholders
 	// (which in turn inherit from the master's), rather than setting their
 	// own a:xfrm — the inheritance chain Fase 5 exists for.
-	s2 := p.AddSlide(pptx.WithLayout(pptx.LayoutTitleAndContent))
+	s2 := p.AddSlide(pptx.WithLayout(pptx.LayoutTitleAndContent)).
+		BackgroundGradient(90,
+			pptx.GradientStop{Color: pptx.RGB(0xFF, 0xFF, 0xFF), Pos: 0},
+			pptx.GradientStop{Color: pptx.RGB(0xDC, 0xE6, 0xF1), Pos: 100})
 	s2.Title("Next Steps")
 	body := s2.AddPlaceholder(pptx.PlaceholderBody, 1)
 	body.AddParagraph().Text("Renew the partner agreement").Bullet("•", "Arial")
