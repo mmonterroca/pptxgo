@@ -142,8 +142,11 @@ type PPr struct {
 	// are: an explicit 0 (e.g. overriding an inherited non-zero margin)
 	// must marshal as marL="0", not be dropped by omitempty as if it had
 	// never been set.
-	MarL      *int         `xml:"marL,attr,omitempty"`   // left margin, EMUs
-	Lvl       int          `xml:"lvl,attr,omitempty"`    // outline level, 0-8
+	MarL *int `xml:"marL,attr,omitempty"` // left margin, EMUs
+	// Lvl is *int, not int, for the same reason MarL/Indent are: Level(0)
+	// must marshal as lvl="0" so an explicit call to reset the outline
+	// level is distinguishable from never having called Level at all.
+	Lvl       *int         `xml:"lvl,attr,omitempty"`    // outline level, 0-8
 	Indent    *int         `xml:"indent,attr,omitempty"` // first-line indent, EMUs; negative for hanging indent
 	Algn      string       `xml:"algn,attr,omitempty"`
 	LnSpc     *TextSpacing `xml:"a:lnSpc,omitempty"`
