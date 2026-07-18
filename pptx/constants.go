@@ -41,7 +41,6 @@ const (
 	PathPresentation = "ppt/presentation.xml"
 	PathTheme1       = "ppt/theme/theme1.xml"
 	PathSlideMaster1 = "ppt/slideMasters/slideMaster1.xml"
-	PathSlideLayout1 = "ppt/slideLayouts/slideLayout1.xml"
 	PathCoreProps    = "docProps/core.xml"
 	PathAppProps     = "docProps/app.xml"
 )
@@ -49,6 +48,12 @@ const (
 // SlidePath returns the part path for the nth slide (1-indexed).
 func SlidePath(n int) string {
 	return "ppt/slides/slide" + strconv.Itoa(n) + ".xml"
+}
+
+// SlideLayoutPath returns the part path for the nth slide layout
+// (1-indexed) — see newStandardLayouts for what each index holds.
+func SlideLayoutPath(n int) string {
+	return "ppt/slideLayouts/slideLayout" + strconv.Itoa(n) + ".xml"
 }
 
 // Content types specific to PresentationML.
