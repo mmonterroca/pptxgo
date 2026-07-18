@@ -69,12 +69,20 @@ const (
 // Slide.BackgroundScheme.
 type SchemeColor string
 
-// Theme color scheme slots.
+// Theme color scheme slots. dk1/lt1/dk2/lt2 are the slots the theme's own
+// a:clrScheme defines directly; bg1/tx1/bg2/tx2 are the same four slots
+// under the aliases a slide's own p:clrMap maps them through (bg1->lt1,
+// tx1->dk1, bg2->lt2, tx2->dk2, in pptxgo's default color map — see
+// NewDefaultClrMap) — both forms are valid ST_SchemeColorVal values.
 const (
 	SchemeDark1             SchemeColor = "dk1"
 	SchemeLight1            SchemeColor = "lt1"
 	SchemeDark2             SchemeColor = "dk2"
 	SchemeLight2            SchemeColor = "lt2"
+	SchemeBackground1       SchemeColor = "bg1"
+	SchemeText1             SchemeColor = "tx1"
+	SchemeBackground2       SchemeColor = "bg2"
+	SchemeText2             SchemeColor = "tx2"
 	SchemeAccent1           SchemeColor = "accent1"
 	SchemeAccent2           SchemeColor = "accent2"
 	SchemeAccent3           SchemeColor = "accent3"
