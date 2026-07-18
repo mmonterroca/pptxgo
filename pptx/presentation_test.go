@@ -1160,6 +1160,39 @@ func TestNew_DefaultIsStillWidescreen16x9(t *testing.T) {
 	}
 }
 
+func TestNew_WithSlideSizeTooSmallAccumulatesErrorAndKeepsDefault(t *testing.T) {
+	p := New(WithSlideSize(Inches(0.5), Inches(0.5)))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated too-small-slide-size error")
+	}
+}
+
+func TestNew_WithSlideSizeNegativeAccumulatesError(t *testing.T) {
+	p := New(WithSlideSize(-Inches(10), Inches(7.5)))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated negative-slide-size error")
+	}
+}
+
+func TestNew_WithSlideSizeTooLargeAccumulatesError(t *testing.T) {
+	p := New(WithSlideSize(maxSlideSizeEMU+1, Inches(7.5)))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated too-large-slide-size error")
+	}
+}
+
+func TestNew_WithSlideSizeBoundaryValuesDoNotError(t *testing.T) {
+	p := New(WithSlideSize(minSlideSizeEMU, maxSlideSizeEMU))
+
+	if err := p.Save(&bytes.Buffer{}); err != nil {
+		t.Fatalf("expected no error for boundary-valid slide size, got %v", err)
+	}
+}
+
+
 func pngBytes(t *testing.T, w, h int) []byte {
 	t.Helper()
 	var buf bytes.Buffer

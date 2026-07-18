@@ -31,6 +31,7 @@ import (
 
 	"github.com/mmonterroca/pptxgo/drawingml"
 	"github.com/mmonterroca/pptxgo/opc"
+	"github.com/mmonterroca/pptxgo/pkg/errors"
 )
 
 // Slide 16:9 widescreen canvas size (13.333in x 7.5in) and notes page size
@@ -83,16 +84,33 @@ type presentationConfig struct {
 	slideWidthEMU  int
 	slideHeightEMU int
 	slideSizeType  string // ST_SlideSizeType, e.g. "screen16x9"; "" when the size doesn't match a named preset
+	err            error  // an Option's validation error, applied to the *Presentation once New has one to record it on
 }
+
+// ST_SlideSizeCoordinate's inclusive range, in EMUs (1in to 56in) — the
+// schema's bounds for p:sldSz's cx/cy attributes.
+const (
+	minSlideSizeEMU = 914400
+	maxSlideSizeEMU = 51206400
+)
 
 // WithSlideSize overrides New's default 16:9 widescreen canvas (13.333in x
 // 7.5in) with an explicit width and height, in EMUs (see the Inches
 // helper) — including a portrait layout, by simply passing a height
 // greater than the width. The resulting p:sldSz carries no type
 // attribute, since ST_SlideSizeType names a fixed set of standard sizes
-// and an arbitrary custom size doesn't correspond to any of them.
+// and an arbitrary custom size doesn't correspond to any of them. A
+// dimension outside ST_SlideSizeCoordinate's 914400-51206400 EMU range
+// (1in to 56in) is recorded as an error on the presentation (returned by
+// Save) and leaves New's own default size in effect.
 func WithSlideSize(widthEMU, heightEMU int) Option {
 	return func(c *presentationConfig) {
+		if widthEMU < minSlideSizeEMU || widthEMU > maxSlideSizeEMU ||
+			heightEMU < minSlideSizeEMU || heightEMU > maxSlideSizeEMU {
+			c.err = errors.InvalidArgument("WithSlideSize", "widthEMU/heightEMU", [2]int{widthEMU, heightEMU},
+				"must each be between 914400 and 51206400 (ST_SlideSizeCoordinate's 1in-56in range)")
+			return
+		}
 		c.slideWidthEMU = widthEMU
 		c.slideHeightEMU = heightEMU
 		c.slideSizeType = ""
@@ -204,7 +222,9 @@ func New(opts ...Option) *Presentation {
 		panic(err)
 	}
 
-	return &Presentation{pkg: pkg, pres: pres, presRels: presRels}
+	p := &Presentation{pkg: pkg, pres: pres, presRels: presRels}
+	p.addErr(cfg.err)
+	return p
 }
 
 // AddSlide appends a new, empty slide — using the presentation's one slide

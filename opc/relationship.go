@@ -113,9 +113,26 @@ func normalizeTargetMode(mode string) string {
 // pptx.Presentation's content-hash cache) would still leave every
 // AddImage* call on the same slide creating its own redundant
 // relationship to that one shared part.
+//
+// The lookup is deliberately type-scoped rather than built on GetByTarget:
+// GetByTarget returns the first relationship matching Target regardless
+// of Type, so if this owner ever held a same-target relationship of a
+// different type (map iteration order is randomized), it could shadow an
+// existing image relationship and cause AddImage to add a redundant one
+// on some calls and not others.
 func (rm *RelationshipManager) AddImage(target string) (string, error) {
-	if rel, err := rm.GetByTarget(target); err == nil && rel.Type == RelTypeImage {
-		return rel.ID, nil
+	rm.mu.RLock()
+	var existingID string
+	for _, rel := range rm.relationships {
+		if rel.Target == target && rel.Type == RelTypeImage {
+			existingID = rel.ID
+			break
+		}
+	}
+	rm.mu.RUnlock()
+
+	if existingID != "" {
+		return existingID, nil
 	}
 	return rm.Add(RelTypeImage, target, "Internal")
 }
