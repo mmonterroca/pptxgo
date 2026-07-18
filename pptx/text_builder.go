@@ -357,7 +357,7 @@ func (pg *Paragraph) Level(lvl int) *Paragraph {
 		pg.pres.addErr(errors.InvalidArgument("Paragraph.Level", "lvl", lvl, "must be between 0 and 8"))
 		return pg
 	}
-	pg.pPr().Lvl = lvl
+	pg.pPr().Lvl = &lvl
 	return pg
 }
 
