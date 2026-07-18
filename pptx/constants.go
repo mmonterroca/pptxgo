@@ -43,6 +43,11 @@ const (
 	PathSlideMaster1 = "ppt/slideMasters/slideMaster1.xml"
 	PathCoreProps    = "docProps/core.xml"
 	PathAppProps     = "docProps/app.xml"
+
+	// PathSlideLayout1 is SlideLayoutPath(1) — the always-present LayoutBlank
+	// part — spelled as a constant for callers that want the blank layout's
+	// path without computing it.
+	PathSlideLayout1 = "ppt/slideLayouts/slideLayout1.xml"
 )
 
 // SlidePath returns the part path for the nth slide (1-indexed).

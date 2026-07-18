@@ -52,9 +52,7 @@ func newMasterSpTree(slideWidthEMU, slideHeightEMU int) *SpTree {
 	titleX, titleY := margin, slideHeightEMU*masterMarginPct/100
 	titleW, titleH := slideWidthEMU-2*margin, slideHeightEMU*masterTitleHeightPct/100
 
-	bodyX, bodyY := titleX, titleY+titleH+slideHeightEMU*masterTitleGapPct/100
-	bodyW := titleW
-	bodyH := slideHeightEMU - bodyY - slideHeightEMU*masterBottomGapPct/100
+	bodyX, bodyY, bodyW, bodyH := masterBodyRect(slideWidthEMU, slideHeightEMU)
 
 	title := newPlaceholderShape(2, "Title Placeholder 2", PlaceholderTitle, 0, &drawingml.Xfrm{
 		Off: &drawingml.Off{X: titleX, Y: titleY},
@@ -76,6 +74,24 @@ func newMasterSpTree(slideWidthEMU, slideHeightEMU int) *SpTree {
 	spTree := NewEmptySpTree()
 	spTree.Content = append(spTree.Content, title, body)
 	return spTree
+}
+
+// masterBodyRect returns the master's own body placeholder's rect (x, y,
+// width, height, all in EMUs): newMasterSpTree's body geometry formula,
+// factored out so newStandardLayouts' Two Content layout — whose two
+// side-by-side bodies have no master counterpart to inherit position from,
+// and so need their own explicit vertical rect — can reuse the exact same
+// numbers instead of a second, driftable copy of the formula.
+func masterBodyRect(slideWidthEMU, slideHeightEMU int) (x, y, w, h int) {
+	margin := slideWidthEMU * masterMarginPct / 100
+	titleY := slideHeightEMU * masterMarginPct / 100
+	titleH := slideHeightEMU * masterTitleHeightPct / 100
+
+	x = margin
+	y = titleY + titleH + slideHeightEMU*masterTitleGapPct/100
+	w = slideWidthEMU - 2*margin
+	h = slideHeightEMU - y - slideHeightEMU*masterBottomGapPct/100
+	return x, y, w, h
 }
 
 // newPlaceholderShape builds a p:sp carrying a p:ph placeholder marker
