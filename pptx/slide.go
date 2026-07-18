@@ -136,7 +136,7 @@ func (s *Slide) addShape(prst PresetGeometry, x, y, w, h int, isTextBox bool) *S
 // PowerPoint has nothing to inherit position from and places it
 // arbitrarily; Title and Body cover the common case of a type/idx a
 // standard layout does declare.
-func (s *Slide) AddPlaceholder(phType PlaceholderType, idx int) *ShapeRef {
+func (s *Slide) AddPlaceholder(phType PlaceholderType, idx uint32) *ShapeRef {
 	id := s.nextShapeID
 	s.nextShapeID++
 

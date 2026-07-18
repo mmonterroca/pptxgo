@@ -157,7 +157,7 @@ func New(opts ...Option) *Presentation {
 	}
 
 	layouts := newStandardLayouts(cfg.slideWidthEMU, cfg.slideHeightEMU)
-	sldLayoutIdLst := &SldLayoutIdLst{}
+	sldLayoutIdLst := &SldLayoutIdLst{Entries: make([]*SldLayoutId, 0, len(layouts))}
 	layoutIndexByType := make(map[LayoutType]int, len(layouts))
 	for i, layout := range layouts {
 		layoutRID, err := masterRels.Add(RelTypeSlideLayout, slideLayoutRelTarget(i+1), "Internal")

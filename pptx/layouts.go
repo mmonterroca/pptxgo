@@ -63,23 +63,28 @@ type layoutSlide struct {
 // subTitle, and a layout's second body) has no master counterpart to
 // inherit from, so it declares its own explicit geometry instead of
 // leaving position unresolved.
+// newTitleAndSingleBodySpTree builds a title(idx=0)+body(idx=1) placeholder
+// spTree that inherits both placeholders' geometry from the master (both
+// type+idx pairs match one of the master's own placeholders, so neither
+// needs its own a:xfrm) — shared by Title and Content and Section Header,
+// which differ only in the body placeholder's display name.
+func newTitleAndSingleBodySpTree(bodyName string) *SpTree {
+	spTree := NewEmptySpTree()
+	spTree.Content = append(spTree.Content,
+		newPlaceholderShape(2, "Title Placeholder 2", PlaceholderTitle, 0, nil),
+		newPlaceholderShape(3, bodyName, PlaceholderBody, 1, nil),
+	)
+	return spTree
+}
+
 func newStandardLayouts(slideWidthEMU, slideHeightEMU int) []layoutSlide {
 	margin := slideWidthEMU * masterMarginPct / 100
 	fullW := slideWidthEMU - 2*margin
 
 	blank := NewEmptySpTree()
 
-	titleAndContent := NewEmptySpTree()
-	titleAndContent.Content = append(titleAndContent.Content,
-		newPlaceholderShape(2, "Title Placeholder 2", PlaceholderTitle, 0, nil),
-		newPlaceholderShape(3, "Content Placeholder 3", PlaceholderBody, 1, nil),
-	)
-
-	sectionHeader := NewEmptySpTree()
-	sectionHeader.Content = append(sectionHeader.Content,
-		newPlaceholderShape(2, "Title Placeholder 2", PlaceholderTitle, 0, nil),
-		newPlaceholderShape(3, "Text Placeholder 3", PlaceholderBody, 1, nil),
-	)
+	titleAndContent := newTitleAndSingleBodySpTree("Content Placeholder 3")
+	sectionHeader := newTitleAndSingleBodySpTree("Text Placeholder 3")
 
 	// Title Slide: ctrTitle/subTitle share no type+idx with any master
 	// placeholder, so both get their own geometry — centered around the
@@ -107,8 +112,7 @@ func newStandardLayouts(slideWidthEMU, slideHeightEMU int) []layoutSlide {
 	// than sitting beside it.
 	colGap := slideWidthEMU * masterTitleGapPct / 100
 	colW := (fullW - colGap) / 2
-	bodyY := slideHeightEMU*masterMarginPct/100 + slideHeightEMU*masterTitleHeightPct/100 + slideHeightEMU*masterTitleGapPct/100
-	bodyH := slideHeightEMU - bodyY - slideHeightEMU*masterBottomGapPct/100
+	_, bodyY, _, bodyH := masterBodyRect(slideWidthEMU, slideHeightEMU)
 	twoContent := NewEmptySpTree()
 	twoContent.Content = append(twoContent.Content,
 		newPlaceholderShape(2, "Title Placeholder 2", PlaceholderTitle, 0, nil),
