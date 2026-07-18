@@ -210,17 +210,22 @@ func newLnScheme(pres *Presentation, scheme SchemeColor, widthPoints float64) *d
 	return drawingml.NewLnScheme(string(scheme), w)
 }
 
-// validatedLineWidthEMU converts widthPoints to EMUs, or records an
-// out-of-range (negative, or over ST_LineWidth's maximum) width as an
-// error on pres and returns ok=false, leaving the caller's Ln field unset
-// rather than emitting a schema-invalid a:ln/@w.
+// validatedLineWidthEMU converts widthPoints to EMUs (rounding to the
+// nearest whole EMU, not truncating — the same class of float64 precision
+// issue FontSize's centipoint conversion already guards against), or
+// records an out-of-range width as an error on pres and returns ok=false,
+// leaving the caller's Ln field unset rather than emitting a
+// schema-invalid a:ln/@w. NaN fails both bounds comparisons below (every
+// comparison against NaN is false), so it is checked explicitly first —
+// without that check it would silently reach the int() conversion, which
+// produces an implementation-defined result for a non-finite float64.
 func validatedLineWidthEMU(pres *Presentation, widthPoints float64) (emu int, ok bool) {
-	if widthPoints < 0 || widthPoints > maxLineWidthPoints {
+	if math.IsNaN(widthPoints) || widthPoints < 0 || widthPoints > maxLineWidthPoints {
 		pres.addErr(errors.InvalidArgument("Border", "widthPoints", widthPoints,
 			"must be between 0 and 1584 (ST_LineWidth's 0-20,116,800 EMU range)"))
 		return 0, false
 	}
-	return int(widthPoints * drawingml.EMUsPerPoint), true
+	return int(math.Round(widthPoints * drawingml.EMUsPerPoint)), true
 }
 
 // Paragraph is a handle onto a single a:p, returned by TextBox.AddParagraph.
