@@ -148,6 +148,13 @@ func main() {
 	body := s2.AddPlaceholder(pptx.PlaceholderBody, 1)
 	body.AddParagraph().Text("Renew the partner agreement").Bullet("•", "Arial")
 	body.AddParagraph().Text("Ship the Fase 5 stack").Bullet("•", "Arial")
+	// No explicit Bullet/Indent below — each paragraph inherits its bullet
+	// glyph and indent entirely from the master's own multi-level txStyles
+	// cascade (NewDefaultTxStyles' 9-level bodyStyle), proving the
+	// inheritance actually resolves per level, not just at level 0.
+	body.AddParagraph().Text("Expand partner channel").Level(0)
+	body.AddParagraph().Text("Identify regional partners").Level(1)
+	body.AddParagraph().Text("Confirm SLAs with each partner").Level(2)
 
 	f, err := os.Create("01_basic_demo.pptx")
 	if err != nil {
