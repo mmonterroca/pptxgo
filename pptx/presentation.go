@@ -158,11 +158,12 @@ func (p *Presentation) AddSlide() *Slide {
 	path := SlidePath(n)
 
 	spTree := NewEmptySpTree()
+	cSld := &CSld{SpTree: spTree}
 	p.pkg.AddPart(path, ContentTypeSlide, &XMLSlide{
 		XmlnsA:    drawingml.NamespaceMain,
 		XmlnsR:    drawingml.NamespaceRelationships,
 		XmlnsP:    NamespaceMain,
-		CSld:      &CSld{SpTree: spTree},
+		CSld:      cSld,
 		ClrMapOvr: NewClrMapOvrInherit(),
 	})
 	if _, err := p.pkg.Relationships(path).Add(RelTypeSlideLayout, "../slideLayouts/slideLayout1.xml", "Internal"); err != nil {
@@ -182,7 +183,7 @@ func (p *Presentation) AddSlide() *Slide {
 		RID: slideRID,
 	})
 
-	return &Slide{pres: p, path: path, spTree: spTree, nextShapeID: firstShapeID}
+	return &Slide{pres: p, path: path, cSld: cSld, spTree: spTree, nextShapeID: firstShapeID}
 }
 
 // addErr records a user-input validation error raised deep in a fluent

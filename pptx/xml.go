@@ -24,7 +24,11 @@ SOFTWARE.
 
 package pptx
 
-import "encoding/xml"
+import (
+	"encoding/xml"
+
+	"github.com/mmonterroca/pptxgo/drawingml"
+)
 
 // XMLPresentation represents ppt/presentation.xml (p:presentation).
 type XMLPresentation struct {
@@ -90,11 +94,30 @@ type XMLSlide struct {
 	ClrMapOvr *ClrMapOvr `xml:"p:clrMapOvr"`
 }
 
-// CSld is p:cSld, the common slide data container (shape tree plus, on
-// slides only, an optional name attribute).
+// CSld is p:cSld, the common slide data container: an optional background
+// followed by the shape tree (plus, on slides only, an optional name
+// attribute). Bg comes before SpTree in the struct because CT_CommonSlideData
+// requires it there — bg is minOccurs=0, but when present it must precede
+// the (always-required) spTree.
 type CSld struct {
 	XMLName xml.Name `xml:"p:cSld"`
+	Bg      *Bg      `xml:"p:bg,omitempty"`
 	SpTree  *SpTree  `xml:"p:spTree"`
+}
+
+// Bg is p:bg (CT_Background): a slide's own background, overriding
+// whatever its layout/master would otherwise supply. Only the simplest
+// path — an explicit fill via BgPr — is modeled; bgRef (a reference into
+// the theme's format-scheme background styles) is out of scope.
+type Bg struct {
+	XMLName xml.Name `xml:"p:bg"`
+	BgPr    *BgPr    `xml:"p:bgPr"`
+}
+
+// BgPr is p:bgPr (CT_BackgroundProperties): the background's own fill.
+type BgPr struct {
+	XMLName xml.Name             `xml:"p:bgPr"`
+	Fill    *drawingml.SolidFill `xml:"a:solidFill,omitempty"`
 }
 
 // SpTree is p:spTree, the shape tree: the root container for every visible

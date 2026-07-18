@@ -54,7 +54,14 @@ func logoPNG() []byte {
 func main() {
 	p := pptx.New()
 
-	s := p.AddSlide()
+	s := p.AddSlide().BackgroundScheme(pptx.SchemeLight2)
+
+	badge := s.AddShape(pptx.ShapeRoundRect, pptx.Inches(9.5), pptx.Inches(1), pptx.Inches(1.8), pptx.Inches(0.6)).
+		FillScheme(pptx.SchemeAccent2).
+		BorderScheme(pptx.SchemeDark2, 1.0)
+	badge.AddParagraph().
+		Text("Q3 Update").Bold().FontSize(14).Font("Calibri").ColorScheme(pptx.SchemeLight1).
+		Alignment(pptx.AlignCenter)
 
 	tb := s.AddTextBox(pptx.Inches(1), pptx.Inches(1), pptx.Inches(8), pptx.Inches(2)).
 		Fill(pptx.RGB(0xE7, 0xE6, 0xE6)).

@@ -56,7 +56,24 @@ func (sr *ShapeRef) AddParagraph() *Paragraph {
 
 // Fill sets the shape's background to a solid color.
 func (sr *ShapeRef) Fill(c drawingml.Color) *ShapeRef {
+	sr.spPr.NoFill = nil
 	sr.spPr.Fill = drawingml.NewSolidFillRGB(c)
+	return sr
+}
+
+// FillScheme sets the shape's background to a theme color, referenced by
+// scheme slot (e.g. SchemeAccent1) rather than an explicit RGB value.
+func (sr *ShapeRef) FillScheme(scheme SchemeColor) *ShapeRef {
+	sr.spPr.NoFill = nil
+	sr.spPr.Fill = drawingml.NewSolidFillScheme(string(scheme))
+	return sr
+}
+
+// NoFill removes the shape's fill entirely — distinct from never calling
+// Fill, which lets the shape inherit one from its style or layout instead.
+func (sr *ShapeRef) NoFill() *ShapeRef {
+	sr.spPr.Fill = nil
+	sr.spPr.NoFill = &drawingml.NoFill{}
 	return sr
 }
 
@@ -66,6 +83,14 @@ func (sr *ShapeRef) Fill(c drawingml.Color) *ShapeRef {
 // presentation (returned by Save) and leaves the border unset.
 func (sr *ShapeRef) Border(c drawingml.Color, widthPoints float64) *ShapeRef {
 	sr.spPr.Ln = newLn(sr.pres, c, widthPoints)
+	return sr
+}
+
+// BorderScheme sets the shape's outline to a theme color, referenced by
+// scheme slot (e.g. SchemeAccent1), at the given width in points — see
+// Border for the width's valid range.
+func (sr *ShapeRef) BorderScheme(scheme SchemeColor, widthPoints float64) *ShapeRef {
+	sr.spPr.Ln = newLnScheme(sr.pres, scheme, widthPoints)
 	return sr
 }
 
@@ -144,17 +169,36 @@ const maxLineWidthPoints = 1584
 // newLn builds a solid-color a:ln of the given width in points, shared by
 // ShapeRef.Border and PictureRef.Border. Point-to-EMU conversion happens
 // here, at the fluent-API boundary, exactly once — the same pattern
-// Paragraph.FontSize uses for centipoints. An out-of-range width (negative,
-// or over ST_LineWidth's maximum) is recorded as an error on pres and
-// returns nil, leaving the caller's Ln field unset rather than emitting a
-// schema-invalid a:ln/@w.
+// Paragraph.FontSize uses for centipoints.
 func newLn(pres *Presentation, c drawingml.Color, widthPoints float64) *drawingml.Ln {
+	w, ok := validatedLineWidthEMU(pres, widthPoints)
+	if !ok {
+		return nil
+	}
+	return drawingml.NewLn(c, w)
+}
+
+// newLnScheme is newLn's theme-color counterpart, shared by
+// ShapeRef.BorderScheme.
+func newLnScheme(pres *Presentation, scheme SchemeColor, widthPoints float64) *drawingml.Ln {
+	w, ok := validatedLineWidthEMU(pres, widthPoints)
+	if !ok {
+		return nil
+	}
+	return drawingml.NewLnScheme(string(scheme), w)
+}
+
+// validatedLineWidthEMU converts widthPoints to EMUs, or records an
+// out-of-range (negative, or over ST_LineWidth's maximum) width as an
+// error on pres and returns ok=false, leaving the caller's Ln field unset
+// rather than emitting a schema-invalid a:ln/@w.
+func validatedLineWidthEMU(pres *Presentation, widthPoints float64) (emu int, ok bool) {
 	if widthPoints < 0 || widthPoints > maxLineWidthPoints {
 		pres.addErr(errors.InvalidArgument("Border", "widthPoints", widthPoints,
 			"must be between 0 and 1584 (ST_LineWidth's 0-20,116,800 EMU range)"))
-		return nil
+		return 0, false
 	}
-	return drawingml.NewLn(c, int(widthPoints*drawingml.EMUsPerPoint))
+	return int(widthPoints * drawingml.EMUsPerPoint), true
 }
 
 // Paragraph is a handle onto a single a:p, returned by TextBox.AddParagraph.
@@ -251,6 +295,14 @@ func (pg *Paragraph) Font(name string) *Paragraph {
 // Color sets the current run(s)' text color to a solid fill.
 func (pg *Paragraph) Color(c drawingml.Color) *Paragraph {
 	pg.eachRPr(func(rpr *drawingml.RPr) { rpr.SolidFill = drawingml.NewSolidFillRGB(c) })
+	return pg
+}
+
+// ColorScheme sets the current run(s)' text color to a theme color,
+// referenced by scheme slot (e.g. SchemeAccent1) rather than an explicit
+// RGB value.
+func (pg *Paragraph) ColorScheme(scheme SchemeColor) *Paragraph {
+	pg.eachRPr(func(rpr *drawingml.RPr) { rpr.SolidFill = drawingml.NewSolidFillScheme(string(scheme)) })
 	return pg
 }
 

@@ -61,6 +61,30 @@ const (
 	AlignJustify Alignment = "just"
 )
 
+// SchemeColor references a color slot in the active theme's color scheme
+// (a:schemeClr's val attribute, ST_SchemeColorVal — the slots the theme's
+// own a:clrScheme defines) rather than an explicit RGB value, so a
+// fill/border/text color automatically follows the theme. For use with
+// ShapeRef.FillScheme, ShapeRef.BorderScheme, Paragraph.ColorScheme, and
+// Slide.BackgroundScheme.
+type SchemeColor string
+
+// Theme color scheme slots.
+const (
+	SchemeDark1             SchemeColor = "dk1"
+	SchemeLight1            SchemeColor = "lt1"
+	SchemeDark2             SchemeColor = "dk2"
+	SchemeLight2            SchemeColor = "lt2"
+	SchemeAccent1           SchemeColor = "accent1"
+	SchemeAccent2           SchemeColor = "accent2"
+	SchemeAccent3           SchemeColor = "accent3"
+	SchemeAccent4           SchemeColor = "accent4"
+	SchemeAccent5           SchemeColor = "accent5"
+	SchemeAccent6           SchemeColor = "accent6"
+	SchemeHyperlink         SchemeColor = "hlink"
+	SchemeFollowedHyperlink SchemeColor = "folHlink"
+)
+
 // NumberingScheme names an automatic bullet-numbering scheme (a:buAutoNum's
 // type attribute, ST_TextAutonumberScheme) for use with Paragraph.NumberedBullet.
 type NumberingScheme string

@@ -572,6 +572,120 @@ func TestShapeRef_InsetsAnchorAndWordWrap(t *testing.T) {
 	}
 }
 
+func TestShapeRef_FillSchemeEmitsSchemeClrNotSrgbClr(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		FillScheme(SchemeAccent1).
+		BorderScheme(SchemeDark2, 1.0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:schemeClr val="accent1">`) {
+		t.Errorf("expected fill schemeClr val=\"accent1\", got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:schemeClr val="dk2">`) {
+		t.Errorf("expected border schemeClr val=\"dk2\", got %s", slide)
+	}
+	if strings.Contains(slide, "a:srgbClr") {
+		t.Errorf("expected no a:srgbClr when using scheme colors, got %s", slide)
+	}
+}
+
+func TestShapeRef_FillThenNoFillClearsSolidFill(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		Fill(RGB(0xFF, 0, 0)).
+		NoFill()
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, "<a:noFill>") {
+		t.Errorf("expected a:noFill, got %s", slide)
+	}
+	if strings.Contains(slide, "a:solidFill") {
+		t.Errorf("expected NoFill to clear the earlier Fill call, got %s", slide)
+	}
+}
+
+func TestShapeRef_NoFillThenFillClearsNoFill(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		NoFill().
+		Fill(RGB(0, 0xFF, 0))
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if strings.Contains(slide, "a:noFill") {
+		t.Errorf("expected Fill to clear the earlier NoFill call, got %s", slide)
+	}
+	if !strings.Contains(slide, "a:solidFill") {
+		t.Errorf("expected a:solidFill present, got %s", slide)
+	}
+}
+
+func TestParagraph_ColorSchemeEmitsSchemeClr(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("Themed").ColorScheme(SchemeAccent2)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:schemeClr val="accent2">`) {
+		t.Errorf("expected run color schemeClr val=\"accent2\", got %s", slide)
+	}
+}
+
+func TestSlide_BackgroundEmitsBgBeforeSpTree(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.Background(RGB(0x1F, 0x49, 0x7D))
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	bgIdx := strings.Index(slide, "<p:bg>")
+	spTreeIdx := strings.Index(slide, "<p:spTree>")
+	if bgIdx == -1 || spTreeIdx == -1 || bgIdx > spTreeIdx {
+		t.Errorf("expected p:bg before p:spTree, got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:srgbClr val="1F497D">`) {
+		t.Errorf("expected background srgbClr val=\"1F497D\", got %s", slide)
+	}
+}
+
+func TestSlide_BackgroundSchemeEmitsSchemeClr(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.BackgroundScheme(SchemeLight1)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:schemeClr val="lt1">`) {
+		t.Errorf("expected background schemeClr val=\"lt1\", got %s", slide)
+	}
+}
+
+func TestSlide_NoBackgroundOmitsBgElement(t *testing.T) {
+	p := New()
+	p.AddSlide()
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if strings.Contains(slide, "<p:bg>") {
+		t.Errorf("expected no p:bg when Background is never called, got %s", slide)
+	}
+}
+
 func TestAddImage_MissingFileAccumulatesError(t *testing.T) {
 	p := New()
 	s := p.AddSlide()
