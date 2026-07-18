@@ -144,7 +144,6 @@ const (
 	PlaceholderCtrTitle PlaceholderType = "ctrTitle" // centered title (title-slide layout)
 	PlaceholderSubTitle PlaceholderType = "subTitle" // subtitle (title-slide layout)
 	PlaceholderBody     PlaceholderType = "body"     // bulleted body text
-	PlaceholderObj      PlaceholderType = "obj"      // generic content placeholder
 )
 
 // PresetGeometry names a preset autoshape outline (a:prstGeom's prst
