@@ -985,6 +985,214 @@ func TestBorder_BoundaryWidthsDoNotError(t *testing.T) {
 	}
 }
 
+func TestAddTable_EmitsSchemaOrderedGraphicFrame(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 3, Inches(1), Inches(1), Inches(9), Inches(2))
+	tbl.Cell(0, 0).Text("Q1")
+	tbl.Cell(0, 1).Text("Q2")
+	tbl.Cell(1, 0).Text("100")
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	nvIdx := strings.Index(slide, "<p:nvGraphicFramePr>")
+	xfrmIdx := strings.Index(slide, "<p:xfrm>")
+	graphicIdx := strings.Index(slide, "<a:graphic")
+	tblIdx := strings.Index(slide, "<a:tbl>")
+	tblGridIdx := strings.Index(slide, "<a:tblGrid>")
+	if nvIdx == -1 || xfrmIdx == -1 || graphicIdx == -1 || tblIdx == -1 || tblGridIdx == -1 {
+		t.Fatalf("expected nvGraphicFramePr, xfrm, graphic, tbl, and tblGrid all present, got %s", slide)
+	}
+	if !(nvIdx < xfrmIdx && xfrmIdx < graphicIdx && graphicIdx < tblIdx && tblIdx < tblGridIdx) {
+		t.Errorf("expected nvGraphicFramePr < xfrm < graphic < tbl < tblGrid order, got %s", slide)
+	}
+	if !strings.Contains(slide, `uri="http://schemas.openxmlformats.org/drawingml/2006/table"`) {
+		t.Errorf("expected the table graphicData URI, got %s", slide)
+	}
+	for _, want := range []string{"Q1", "Q2", "100"} {
+		if !strings.Contains(slide, want) {
+			t.Errorf("expected cell text %q, got %s", want, slide)
+		}
+	}
+	// 3 columns splitting 9in (8229600 EMU) evenly -> 2743200 EMU each.
+	if !strings.Contains(slide, `<a:gridCol w="2743200">`) {
+		t.Errorf("expected evenly-split column width 2743200 EMU, got %s", slide)
+	}
+}
+
+func TestAddTable_GraphicFrameExtentMatchesTruncatedGridTotalNotRawWH(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	// 100 EMU / 3 cols = 33 EMU each (integer division), summing to 99 —
+	// 1 EMU short of the raw w=100 passed in. Likewise 100 EMU / 3 rows.
+	// The graphic frame's own a:ext must reflect the actual grid total
+	// (99), not the raw, unreachable 100 — a:ext disagreeing with the real
+	// column/row sum is exactly the kind of mismatch PowerPoint "repairs"
+	// (or a strict validator rejects) on load.
+	s.AddTable(3, 3, Inches(1), Inches(1), Emu(100), Emu(100))
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:ext cx="99" cy="99">`) {
+		t.Errorf("expected a:ext to match the truncated grid total (99 EMU), not the raw w/h (100 EMU), got %s", slide)
+	}
+}
+
+func TestTable_ColumnWidthAndRowHeightOverrideEvenSplit(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 2, Inches(1), Inches(1), Inches(4), Inches(2))
+	tbl.ColumnWidth(0, Inches(3))
+	tbl.RowHeight(0, Inches(1.5))
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:gridCol w="2743200">`) { // 3in
+		t.Errorf("expected overridden column 0 width 2743200 EMU (3in), got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:tr h="1371600">`) { // 1.5in
+		t.Errorf("expected overridden row 0 height 1371600 EMU (1.5in), got %s", slide)
+	}
+}
+
+func TestAddTable_DefaultsToFirstRowBandedStyle(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTable(1, 1, Inches(1), Inches(1), Inches(2), Inches(1))
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `firstRow="1"`) || !strings.Contains(slide, `bandRow="1"`) {
+		t.Errorf("expected firstRow and bandRow both set, got %s", slide)
+	}
+	if !strings.Contains(slide, "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}") {
+		t.Errorf("expected the default table style GUID, got %s", slide)
+	}
+}
+
+func TestAddTable_ZeroColsAccumulatesErrorInsteadOfPanicking(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+
+	// Must not panic (divide-by-zero on w/cols); must instead accumulate
+	// an error Save reports.
+	s.AddTable(3, 0, Inches(1), Inches(1), Inches(6), Inches(2))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated zero-cols error")
+	}
+}
+
+func TestAddTable_ZeroRowsAccumulatesErrorInsteadOfPanicking(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+
+	s.AddTable(0, 3, Inches(1), Inches(1), Inches(6), Inches(2))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated zero-rows error")
+	}
+}
+
+func TestAddTable_NegativeRowsAndColsAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+
+	s.AddTable(-1, -2, Inches(1), Inches(1), Inches(6), Inches(2))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated negative rows/cols error")
+	}
+}
+
+func TestAddTable_PositiveRowsColsDoNotError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTable(2, 2, Inches(1), Inches(1), Inches(4), Inches(2))
+
+	if err := p.Save(&bytes.Buffer{}); err != nil {
+		t.Fatalf("expected no error for valid rows/cols, got %v", err)
+	}
+}
+
+func TestTable_ColumnWidthOutOfRangeAccumulatesErrorInsteadOfPanicking(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 2, Inches(1), Inches(1), Inches(4), Inches(2))
+
+	// Must not panic (slice out-of-range); must instead accumulate an
+	// error Save reports.
+	tbl.ColumnWidth(5, Inches(1))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated out-of-range column error")
+	}
+}
+
+func TestTable_RowHeightOutOfRangeAccumulatesErrorInsteadOfPanicking(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 2, Inches(1), Inches(1), Inches(4), Inches(2))
+
+	tbl.RowHeight(5, Inches(1))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated out-of-range row error")
+	}
+}
+
+func TestTable_ColumnWidthNegativeIndexAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 2, Inches(1), Inches(1), Inches(4), Inches(2))
+
+	tbl.ColumnWidth(-1, Inches(1))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated negative-index column error")
+	}
+}
+
+func TestTable_ColumnWidthResyncsGraphicFrameExtent(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	// 2 columns, 4in total -> 2in each (18288000/2 = 1828800 EMU... actually
+	// 4in = 3657600 EMU, split across 2 cols = 1828800 EMU each).
+	tbl := s.AddTable(1, 2, Inches(1), Inches(1), Inches(4), Inches(1))
+	tbl.ColumnWidth(0, Inches(3))
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	// New total width: col0 = 3in (2743200 EMU) + col1 unchanged (1828800
+	// EMU, half of the original 4in) = 4572000 EMU. The graphic frame's
+	// own p:xfrm/a:ext must reflect this new total, not the original 4in
+	// (3657600 EMU) passed to AddTable.
+	if !strings.Contains(slide, `<a:ext cx="4572000"`) {
+		t.Errorf("expected the graphic frame's a:ext to resync to the new total column width (4572000 EMU), got %s", slide)
+	}
+}
+
+func TestTable_RowHeightResyncsGraphicFrameExtent(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 1, Inches(1), Inches(1), Inches(2), Inches(2))
+	tbl.RowHeight(0, Inches(2))
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	// New total height: row0 = 2in (1828800 EMU) + row1 unchanged (1in,
+	// half of the original 2in = 914400 EMU) = 2743200 EMU.
+	if !strings.Contains(slide, `cy="2743200"`) {
+		t.Errorf("expected the graphic frame's a:ext to resync to the new total row height (2743200 EMU), got %s", slide)
+	}
+}
+
 func TestBorder_NaNWidthAccumulatesError(t *testing.T) {
 	p := New()
 	s := p.AddSlide()
@@ -1056,6 +1264,35 @@ func TestParagraph_HyperlinkEmitsHlinkClickAndSlideScopedRel(t *testing.T) {
 	}
 	if !strings.Contains(rels, `Target="https://example.com/docs"`) || !strings.Contains(rels, `TargetMode="External"`) {
 		t.Errorf("expected an External relationship to the hyperlink URL, got %s", rels)
+	}
+}
+
+func TestTableCell_HyperlinkScopesToSlideRelsNotRootRels(t *testing.T) {
+	// Regression test for a landmine found in manual review of PR #10:
+	// Table/TableCell must thread the owning slide's path down to the
+	// Paragraph they hand back, the same way ShapeRef does — otherwise a
+	// Hyperlink call from inside a table cell resolves its slidePath to
+	// "", and Presentation.pkg.Relationships("") returns the package
+	// ROOT's relationship manager instead of the slide's own, silently
+	// writing the relationship to the wrong .rels file.
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(1, 1, Inches(1), Inches(1), Inches(4), Inches(1))
+	tbl.Cell(0, 0).AddParagraph().Text("See report").Hyperlink("https://example.com/report")
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+	slideRels := string(files["ppt/slides/_rels/slide1.xml.rels"])
+	rootRels := string(files["_rels/.rels"])
+
+	if !strings.Contains(slide, "<a:hlinkClick") {
+		t.Fatalf("expected a:hlinkClick in slide1.xml, got %s", slide)
+	}
+	if !strings.Contains(slideRels, `Target="https://example.com/report"`) {
+		t.Errorf("expected the hyperlink relationship in the slide's own .rels, got %s", slideRels)
+	}
+	if strings.Contains(rootRels, "https://example.com/report") {
+		t.Errorf("expected the hyperlink relationship NOT to leak into the package root's _rels/.rels, got %s", rootRels)
 	}
 }
 

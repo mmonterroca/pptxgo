@@ -102,7 +102,7 @@ func (s *Slide) addShape(prst PresetGeometry, x, y, w, h int, isTextBox bool) *S
 		cNvSpPr.TxBox = true
 	}
 
-	body := &drawingml.TextBody{BodyPr: &drawingml.BodyPr{}, LstStyle: &drawingml.LstStyle{}}
+	body := drawingml.NewTextBody()
 	spPr := &SpPr{
 		Xfrm: &drawingml.Xfrm{
 			Off: &drawingml.Off{X: x, Y: y},
@@ -235,4 +235,84 @@ func (s *Slide) addPicture(data []byte, x, y, w, h int, useExplicitSize bool) *P
 	s.spTree.Content = append(s.spTree.Content, pic)
 
 	return &PictureRef{pres: s.pres, spPr: spPr}
+}
+
+// AddTable adds a rows x cols table at the given position and overall size
+// (x, y, w, h, all in EMUs — see the Inches/Points helpers), with column
+// widths and row heights initially split evenly across w and h, and
+// returns a handle for setting cell content and column/row sizing. Every
+// cell starts with an empty txBody, the same "always at least one a:p"
+// schema guarantee AddTextBox gives a fresh text box (drawingml.TextBody's
+// own MarshalXML fills it in even without an explicit AddParagraph call).
+//
+// Unlike a shape or picture, a table is wrapped in a p:graphicFrame, not a
+// p:sp — a:tbl content lives entirely inline in the slide's own XML, with
+// no separate part or relationship the way an image needs one.
+//
+// rows and cols must both be positive (a table needs at least one of
+// each to mean anything); a non-positive value is recorded as an error on
+// the presentation (returned by Save) rather than dividing width/height
+// by zero, and is clamped to 1 so the rest of this method — and the
+// *Table it returns — has a well-formed table to build, even though Save
+// will refuse to write it.
+func (s *Slide) AddTable(rows, cols, x, y, w, h int) *Table {
+	if rows <= 0 || cols <= 0 {
+		s.pres.addErr(errors.InvalidArgument("AddTable", "rows/cols", [2]int{rows, cols}, "must both be positive"))
+		if rows <= 0 {
+			rows = 1
+		}
+		if cols <= 0 {
+			cols = 1
+		}
+	}
+
+	id := s.nextShapeID
+	s.nextShapeID++
+
+	colW := w / cols
+	grid := &drawingml.TblGrid{}
+	for c := 0; c < cols; c++ {
+		grid.GridCol = append(grid.GridCol, &drawingml.GridCol{W: colW})
+	}
+
+	rowH := h / rows
+	tbl := &drawingml.Tbl{
+		TblPr: &drawingml.TblPr{
+			FirstRow:     true,
+			BandRow:      true,
+			TableStyleID: &drawingml.TableStyleID{Value: drawingml.DefaultTableStyleID},
+		},
+		TblGrid: grid,
+	}
+	for r := 0; r < rows; r++ {
+		tr := &drawingml.Tr{H: rowH}
+		for c := 0; c < cols; c++ {
+			tr.Tcs = append(tr.Tcs, &drawingml.Tc{
+				TxBody: drawingml.NewTextBody(),
+			})
+		}
+		tbl.Trs = append(tbl.Trs, tr)
+	}
+
+	frame := &GraphicFrame{
+		NvGraphicFramePr: &NvGraphicFramePr{
+			CNvPr:             &CNvPr{ID: id, Name: fmt.Sprintf("Table %d", id)},
+			CNvGraphicFramePr: &CNvGraphicFramePr{},
+			NvPr:              &NvPr{},
+		},
+		Xfrm: &GraphicFrameXfrm{
+			Off: &drawingml.Off{X: x, Y: y},
+			// The frame's own extent must equal the table's actual total
+			// size (the sum of column widths / row heights), not the raw
+			// w/h passed in: colW*cols and rowH*rows can be a few EMUs
+			// short of w/h when w/cols or h/rows doesn't divide evenly, and
+			// a:ext disagreeing with the real a:tblGrid/a:tr total is
+			// exactly the kind of mismatch PowerPoint "repairs" on load.
+			Ext: &drawingml.Ext{Cx: colW * cols, Cy: rowH * rows},
+		},
+		Graphic: drawingml.NewGraphic(&drawingml.GraphicData{URI: drawingml.GraphicDataURITable, Inner: tbl}),
+	}
+	s.spTree.Content = append(s.spTree.Content, frame)
+
+	return &Table{pres: s.pres, slidePath: s.path, tbl: tbl, ext: frame.Xfrm.Ext}
 }

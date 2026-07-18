@@ -77,7 +77,7 @@ func main() {
 	// identical media content, so this embeds only one ppt/media/ part.
 	s.AddImageFromBytesWithSize(logo, pptx.Inches(11.6), pptx.Inches(6.9), pptx.Inches(0.5), pptx.Inches(0.31))
 
-	shape := s.AddShape(pptx.ShapeEllipse, pptx.Inches(6.5), pptx.Inches(3.5), pptx.Inches(2.5), pptx.Inches(1.5)).
+	shape := s.AddShape(pptx.ShapeEllipse, pptx.Inches(9.8), pptx.Inches(1.8), pptx.Inches(2.5), pptx.Inches(1.3)).
 		Fill(pptx.RGB(0x1F, 0x49, 0x7D)).
 		Border(pptx.RGB(0x44, 0x54, 0x6A), 1.0).
 		Rotation(15).
@@ -103,6 +103,22 @@ func main() {
 		Text("See the full report").FontSize(16).Font("Calibri").
 		ColorScheme(pptx.SchemeHyperlink).Underline().Hyperlink("https://example.com/quarterly-report").
 		Bullet("•", "Arial").Indent(18, -18)
+
+	tbl := s.AddTable(3, 3, pptx.Inches(6), pptx.Inches(3.5), pptx.Inches(6), pptx.Inches(2.25))
+	tbl.ColumnWidth(0, pptx.Inches(2.4))
+	headers := []string{"Region", "Q3 Revenue", "YoY"}
+	for c, h := range headers {
+		tbl.Cell(0, c).Text(h).Bold()
+	}
+	rows := [][]string{
+		{"North America", "$4.2M", "+9%"},
+		{"EMEA", "$2.8M", "+15%"},
+	}
+	for r, row := range rows {
+		for c, v := range row {
+			tbl.Cell(r+1, c).Text(v)
+		}
+	}
 
 	f, err := os.Create("01_basic_demo.pptx")
 	if err != nil {
