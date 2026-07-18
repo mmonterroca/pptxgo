@@ -740,6 +740,20 @@ func TestParagraph_LevelBoundaryValuesDoNotError(t *testing.T) {
 	}
 }
 
+func TestParagraph_LevelZeroMarshalsExplicitly(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("x").Level(0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `lvl="0"`) {
+		t.Errorf("expected an explicit Level(0) call to marshal lvl=\"0\" (not be dropped by omitempty), got %s", slide)
+	}
+}
+
 func TestAddImage_MissingFileAccumulatesError(t *testing.T) {
 	p := New()
 	s := p.AddSlide()
