@@ -41,11 +41,22 @@ const firstShapeID = 2
 // for adding shapes to it. Obtain one via Presentation.AddSlide; the zero
 // value is not usable.
 type Slide struct {
-	pres        *Presentation
-	path        string // this slide's own part path, e.g. "ppt/slides/slide1.xml" — needed to own its media relationships
-	cSld        *CSld  // the slide's own p:cSld, so Background can set its Bg field after construction
-	spTree      *SpTree
-	nextShapeID uint32
+	pres         *Presentation
+	path         string // this slide's own part path, e.g. "ppt/slides/slide1.xml" — needed to own its media relationships
+	cSld         *CSld  // the slide's own p:cSld, so Background can set its Bg field after construction
+	spTree       *SpTree
+	nextShapeID  uint32
+	layout       LayoutType              // set by AddSlide from WithLayout — lets Title pick the right placeholder type for LayoutTitleSlide
+	placeholders map[placeholderKey]bool // type+idx pairs already placed, so AddPlaceholder can reject a duplicate
+}
+
+// placeholderKey identifies a placeholder by type+idx — the pair PowerPoint
+// itself uses to key placeholders on a slide, so two placeholders sharing
+// one is a corruption PowerPoint "repairs" on open, not schema-invalid XML
+// a validator would catch.
+type placeholderKey struct {
+	phType PlaceholderType
+	idx    uint32
 }
 
 // Background sets the slide's own background to a solid color, overriding
@@ -136,7 +147,28 @@ func (s *Slide) addShape(prst PresetGeometry, x, y, w, h int, isTextBox bool) *S
 // PowerPoint has nothing to inherit position from and places it
 // arbitrarily; Title and Body cover the common case of a type/idx a
 // standard layout does declare.
+//
+// A type+idx pair already used on this slide is rejected (an error
+// recorded on the presentation, returned by Save) rather than emitting a
+// second placeholder with the same key: PowerPoint keys placeholders by
+// type+idx, so a duplicate is schema-valid XML that PowerPoint still
+// treats as corrupt and "repairs" on open, silently dropping one
+// placeholder's content. The returned ShapeRef is still safe to chain off
+// of in that case — it targets a detached shape, not one on the slide.
 func (s *Slide) AddPlaceholder(phType PlaceholderType, idx uint32) *ShapeRef {
+	key := placeholderKey{phType: phType, idx: idx}
+	if s.placeholders[key] {
+		s.pres.addErr(errors.InvalidArgument("AddPlaceholder", "type/idx",
+			fmt.Sprintf("%s/%d", phType, idx),
+			"this slide already has a placeholder with this type and idx; PowerPoint requires each pair to be unique per slide"))
+		shape := newPlaceholderShape(0, "", phType, idx, nil)
+		return &ShapeRef{pres: s.pres, slidePath: s.path, body: shape.TxBody, spPr: shape.SpPr}
+	}
+	if s.placeholders == nil {
+		s.placeholders = make(map[placeholderKey]bool)
+	}
+	s.placeholders[key] = true
+
 	id := s.nextShapeID
 	s.nextShapeID++
 
@@ -146,12 +178,21 @@ func (s *Slide) AddPlaceholder(phType PlaceholderType, idx uint32) *ShapeRef {
 	return &ShapeRef{pres: s.pres, slidePath: s.path, body: shape.TxBody, spPr: shape.SpPr}
 }
 
-// Title adds a title placeholder (type="title", the schema's default
-// idx=0) with the given text and returns a handle for further formatting
-// — a convenience shorthand for AddPlaceholder(PlaceholderTitle,
-// 0).AddParagraph().Text(text).
+// Title adds this slide's title placeholder with the given text and
+// returns a handle for further formatting — a convenience shorthand for
+// AddPlaceholder(<title type>, 0).AddParagraph().Text(text). The
+// placeholder type depends on the slide's own layout (set via WithLayout):
+// LayoutTitleSlide's title is type="ctrTitle" — the only type its layout
+// declares — so Title uses that one; every other layout (including
+// LayoutBlank) uses the ordinary type="title". Using the wrong type would
+// still produce schema-valid XML, but the slide's own layout would have no
+// same-typed placeholder to inherit the title's geometry from.
 func (s *Slide) Title(text string) *Paragraph {
-	return s.AddPlaceholder(PlaceholderTitle, 0).AddParagraph().Text(text)
+	phType := PlaceholderTitle
+	if s.layout == LayoutTitleSlide {
+		phType = PlaceholderCtrTitle
+	}
+	return s.AddPlaceholder(phType, 0).AddParagraph().Text(text)
 }
 
 // Body adds a body placeholder (type="body", idx=1 — matching the

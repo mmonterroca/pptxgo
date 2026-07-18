@@ -98,39 +98,60 @@ func (sr *ShapeRef) BorderScheme(scheme SchemeColor, widthPoints float64) *Shape
 // Rotation sets the shape's rotation, in degrees clockwise (e.g. 45, -90;
 // any value works, including beyond a full turn — 405 is the same
 // rotation as 45). AddShape and AddTextBox always give a shape its own
-// a:xfrm, so this is never a no-op in practice.
+// a:xfrm, so this is never a no-op for them; a placeholder from
+// Slide.AddPlaceholder/Title/Body has no a:xfrm of its own (see WithLayout)
+// and so has nothing to rotate — see the shared nil-Xfrm handling this
+// calls into.
 func (sr *ShapeRef) Rotation(degrees float64) *ShapeRef {
 	if math.IsNaN(degrees) || math.IsInf(degrees, 0) {
 		sr.pres.addErr(errors.InvalidArgument("Rotation", "degrees", degrees, "must be a finite number"))
 		return sr
 	}
-	if sr.spPr.Xfrm != nil {
-		// Normalize to (-360, 360) before converting to 60,000ths of a
-		// degree (a:xfrm/@rot): rotation is inherently modular (405
-		// degrees looks identical to 45), so this changes nothing
-		// visually, but an un-normalized large input — Rotation(36000),
-		// say — would multiply out to a value ST_Angle's underlying
-		// xsd:int (32-bit signed) can't hold, corrupting the file
-		// silently since Save has no other way to detect it.
-		sr.spPr.Xfrm.Rot = int(math.Round(math.Mod(degrees, 360) * 60000))
+	if !sr.requireXfrm("Rotation") {
+		return sr
 	}
+	// Normalize to (-360, 360) before converting to 60,000ths of a degree
+	// (a:xfrm/@rot): rotation is inherently modular (405 degrees looks
+	// identical to 45), so this changes nothing visually, but an
+	// un-normalized large input — Rotation(36000), say — would multiply
+	// out to a value ST_Angle's underlying xsd:int (32-bit signed) can't
+	// hold, corrupting the file silently since Save has no other way to
+	// detect it.
+	sr.spPr.Xfrm.Rot = int(math.Round(math.Mod(degrees, 360) * 60000))
 	return sr
 }
 
 // FlipH flips the shape horizontally.
 func (sr *ShapeRef) FlipH() *ShapeRef {
-	if sr.spPr.Xfrm != nil {
-		sr.spPr.Xfrm.FlipH = true
+	if !sr.requireXfrm("FlipH") {
+		return sr
 	}
+	sr.spPr.Xfrm.FlipH = true
 	return sr
 }
 
 // FlipV flips the shape vertically.
 func (sr *ShapeRef) FlipV() *ShapeRef {
-	if sr.spPr.Xfrm != nil {
-		sr.spPr.Xfrm.FlipV = true
+	if !sr.requireXfrm("FlipV") {
+		return sr
 	}
+	sr.spPr.Xfrm.FlipV = true
 	return sr
+}
+
+// requireXfrm reports whether sr already has an a:xfrm to set a transform
+// attribute on. A nil Xfrm means the shape is a placeholder that
+// deliberately omits its own a:xfrm to inherit position/size from its
+// layout (see Slide.AddPlaceholder) — silently no-oping a transform call
+// on it would discard the caller's request without a trace, so this
+// records an error on the presentation (returned by Save) instead.
+func (sr *ShapeRef) requireXfrm(method string) bool {
+	if sr.spPr.Xfrm != nil {
+		return true
+	}
+	sr.pres.addErr(errors.InvalidArgument(method, "shape", "placeholder",
+		"a placeholder with inherited geometry (see Slide.AddPlaceholder) has no a:xfrm to set a transform on"))
+	return false
 }
 
 // WordWrap sets whether text wraps at the shape's edge. PowerPoint's own

@@ -265,7 +265,18 @@ func (p *Presentation) AddSlide(opts ...SlideOption) *Slide {
 	if !ok {
 		p.addErr(errors.InvalidArgument("AddSlide", "layout", string(cfg.layout),
 			"must be one of the presentation's registered layouts (see LayoutType)"))
-		layoutIdx = p.layoutIndexByType[LayoutBlank] // fall back so construction stays well-formed
+		// Fall back to LayoutBlank so construction stays well-formed even
+		// though Save will refuse to write. New() always registers
+		// LayoutBlank at index 1, but layoutIndexByType is nil on a
+		// Presentation built some other way than New() — an absolute
+		// fallback of 1 (slideLayout1.xml) avoids layoutIdx staying its
+		// zero value, which would otherwise produce an invalid
+		// "slideLayout0.xml" relationship target.
+		if blankIdx, ok := p.layoutIndexByType[LayoutBlank]; ok {
+			layoutIdx = blankIdx
+		} else {
+			layoutIdx = 1
+		}
 	}
 
 	p.slideCount++
@@ -298,7 +309,7 @@ func (p *Presentation) AddSlide(opts ...SlideOption) *Slide {
 		RID: slideRID,
 	})
 
-	return &Slide{pres: p, path: path, cSld: cSld, spTree: spTree, nextShapeID: firstShapeID}
+	return &Slide{pres: p, path: path, cSld: cSld, spTree: spTree, nextShapeID: firstShapeID, layout: cfg.layout}
 }
 
 // addErr records a user-input validation error raised deep in a fluent
