@@ -456,6 +456,122 @@ func TestShapeRef_FlipHAndFlipVSetXfrmAttrs(t *testing.T) {
 	}
 }
 
+func TestParagraph_BulletEmitsCharAndFontBeforeChar(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("First item").Bullet("•", "Arial").Indent(18, -18).Level(1)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:buChar char="•">`) && !strings.Contains(slide, `char="•"`) {
+		t.Errorf("expected buChar with the bullet glyph, got %s", slide)
+	}
+	if !strings.Contains(slide, `typeface="Arial"`) {
+		t.Errorf("expected buFont typeface=\"Arial\", got %s", slide)
+	}
+	buFontIdx := strings.Index(slide, "<a:buFont")
+	buCharIdx := strings.Index(slide, "<a:buChar")
+	if buFontIdx == -1 || buCharIdx == -1 || buFontIdx > buCharIdx {
+		t.Errorf("expected a:buFont before a:buChar, got %s", slide)
+	}
+	if !strings.Contains(slide, `lvl="1"`) {
+		t.Errorf("expected lvl=\"1\", got %s", slide)
+	}
+}
+
+func TestParagraph_NumberedBulletSetsAutoNumType(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("Step one").NumberedBullet(NumArabicPeriod)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:buAutoNum type="arabicPeriod">`) {
+		t.Errorf("expected buAutoNum type=\"arabicPeriod\", got %s", slide)
+	}
+}
+
+func TestParagraph_NoBulletOverridesEarlierBulletCall(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("Plain").Bullet("•", "Arial").NoBullet()
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if strings.Contains(slide, "a:buChar") || strings.Contains(slide, "a:buFont") {
+		t.Errorf("expected NoBullet to clear the earlier Bullet call, got %s", slide)
+	}
+	if !strings.Contains(slide, "<a:buNone>") {
+		t.Errorf("expected a:buNone, got %s", slide)
+	}
+}
+
+func TestParagraph_SpacingEmitsPercentAndPoints(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("Spaced").LineSpacing(150).SpaceBefore(6).SpaceAfter(12)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:spcPct val="150000">`) {
+		t.Errorf("expected lnSpc spcPct val=\"150000\" (150%%), got %s", slide)
+	}
+	// 6pt and 12pt in hundredths of a point.
+	if !strings.Contains(slide, `<a:spcPts val="600">`) {
+		t.Errorf("expected spcBef spcPts val=\"600\" (6pt), got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:spcPts val="1200">`) {
+		t.Errorf("expected spcAft spcPts val=\"1200\" (12pt), got %s", slide)
+	}
+}
+
+func TestShapeRef_AutofitSwitchesAmongTheThreeModes(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2)).Autofit(AutofitShrinkText)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, "<a:normAutofit>") {
+		t.Errorf("expected a:normAutofit, got %s", slide)
+	}
+	if strings.Contains(slide, "a:noAutofit") || strings.Contains(slide, "a:spAutoFit") {
+		t.Errorf("expected only normAutofit present, got %s", slide)
+	}
+}
+
+func TestShapeRef_InsetsAnchorAndWordWrap(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2)).
+		Insets(10, 5, 10, 5).
+		Anchor(AnchorMiddle).
+		WordWrap(false)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `anchor="ctr"`) {
+		t.Errorf("expected anchor=\"ctr\", got %s", slide)
+	}
+	if !strings.Contains(slide, `wrap="none"`) {
+		t.Errorf("expected wrap=\"none\", got %s", slide)
+	}
+	// 10pt = 127000 EMU, 5pt = 63500 EMU.
+	if !strings.Contains(slide, `lIns="127000"`) || !strings.Contains(slide, `tIns="63500"`) {
+		t.Errorf("expected lIns=\"127000\" and tIns=\"63500\", got %s", slide)
+	}
+}
+
 func TestAddImage_MissingFileAccumulatesError(t *testing.T) {
 	p := New()
 	s := p.AddSlide()

@@ -61,6 +61,42 @@ const (
 	AlignJustify Alignment = "just"
 )
 
+// NumberingScheme names an automatic bullet-numbering scheme (a:buAutoNum's
+// type attribute, ST_TextAutonumberScheme) for use with Paragraph.NumberedBullet.
+type NumberingScheme string
+
+// Common numbering schemes.
+const (
+	NumArabicPeriod  NumberingScheme = "arabicPeriod"  // "1.", "2.", ...
+	NumArabicParenR  NumberingScheme = "arabicParenR"  // "1)", "2)", ...
+	NumAlphaLcPeriod NumberingScheme = "alphaLcPeriod" // "a.", "b.", ...
+	NumAlphaUcPeriod NumberingScheme = "alphaUcPeriod" // "A.", "B.", ...
+	NumRomanLcPeriod NumberingScheme = "romanLcPeriod" // "i.", "ii.", ...
+	NumRomanUcPeriod NumberingScheme = "romanUcPeriod" // "I.", "II.", ...
+)
+
+// VerticalAnchor is a text body's vertical anchoring within its shape
+// (a:bodyPr's anchor attribute), for use with ShapeRef.Anchor.
+type VerticalAnchor string
+
+// Vertical anchor positions.
+const (
+	AnchorTop    VerticalAnchor = "t"
+	AnchorMiddle VerticalAnchor = "ctr"
+	AnchorBottom VerticalAnchor = "b"
+)
+
+// AutofitMode controls how a shape's text behaves when it overflows the
+// shape's bounds, for use with ShapeRef.Autofit.
+type AutofitMode string
+
+// Autofit modes.
+const (
+	AutofitNone        AutofitMode = "none"  // text may overflow the shape uncorrected
+	AutofitShrinkText  AutofitMode = "text"  // shrink font/line-spacing to fit
+	AutofitResizeShape AutofitMode = "shape" // grow the shape to fit the text
+)
+
 // PresetGeometry names a preset autoshape outline (a:prstGeom's prst
 // attribute, schema type ST_ShapeType) for use with Slide.AddShape. This is
 // a representative subset of the ~180 shapes ST_ShapeType allows; any other

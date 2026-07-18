@@ -75,6 +75,20 @@ func main() {
 		Text("On Track").Bold().FontSize(18).Font("Calibri").Color(pptx.RGB(0xFF, 0xFF, 0xFF)).
 		Alignment(pptx.AlignCenter)
 
+	list := s.AddTextBox(pptx.Inches(1), pptx.Inches(4.85), pptx.Inches(4.5), pptx.Inches(2)).
+		Autofit(pptx.AutofitShrinkText).
+		Insets(4, 4, 4, 4).
+		Anchor(pptx.AnchorTop)
+	list.AddParagraph().
+		Text("Revenue up 12% year over year").FontSize(16).Font("Calibri").
+		Bullet("•", "Arial").Indent(18, -18).SpaceAfter(6)
+	list.AddParagraph().
+		Text("Two new regions launched").FontSize(16).Font("Calibri").
+		Bullet("•", "Arial").Indent(18, -18).SpaceAfter(6)
+	list.AddParagraph().
+		Text("Next: expand partner channel").FontSize(16).Font("Calibri").
+		NumberedBullet(pptx.NumArabicPeriod).Indent(18, -18).Level(1)
+
 	f, err := os.Create("01_basic_demo.pptx")
 	if err != nil {
 		log.Fatal(err)

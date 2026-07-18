@@ -95,6 +95,48 @@ func (sr *ShapeRef) FlipV() *ShapeRef {
 	return sr
 }
 
+// WordWrap sets whether text wraps at the shape's edge. PowerPoint's own
+// default is wrapping enabled, so this only needs calling to disable it.
+func (sr *ShapeRef) WordWrap(enabled bool) *ShapeRef {
+	if enabled {
+		sr.body.BodyPr.Wrap = "square"
+	} else {
+		sr.body.BodyPr.Wrap = "none"
+	}
+	return sr
+}
+
+// Anchor sets the text body's vertical alignment within the shape.
+func (sr *ShapeRef) Anchor(a VerticalAnchor) *ShapeRef {
+	sr.body.BodyPr.Anchor = string(a)
+	return sr
+}
+
+// Insets sets the text body's internal margins (the gap between the
+// shape's outline and its text), all in points.
+func (sr *ShapeRef) Insets(left, top, right, bottom float64) *ShapeRef {
+	sr.body.BodyPr.LIns = int(left * drawingml.EMUsPerPoint)
+	sr.body.BodyPr.TIns = int(top * drawingml.EMUsPerPoint)
+	sr.body.BodyPr.RIns = int(right * drawingml.EMUsPerPoint)
+	sr.body.BodyPr.BIns = int(bottom * drawingml.EMUsPerPoint)
+	return sr
+}
+
+// Autofit sets how the shape's text behaves when it overflows the shape's
+// bounds.
+func (sr *ShapeRef) Autofit(mode AutofitMode) *ShapeRef {
+	sr.body.BodyPr.NoAutofit, sr.body.BodyPr.NormAutofit, sr.body.BodyPr.SpAutoFit = nil, nil, nil
+	switch mode {
+	case AutofitNone:
+		sr.body.BodyPr.NoAutofit = &drawingml.NoAutofit{}
+	case AutofitShrinkText:
+		sr.body.BodyPr.NormAutofit = &drawingml.NormAutofit{}
+	case AutofitResizeShape:
+		sr.body.BodyPr.SpAutoFit = &drawingml.SpAutoFit{}
+	}
+	return sr
+}
+
 // maxLineWidthPoints is ST_LineWidth's maximum, 20,116,800 EMU, expressed
 // in points (20116800 / EMUsPerPoint).
 const maxLineWidthPoints = 1584
@@ -214,9 +256,84 @@ func (pg *Paragraph) Color(c drawingml.Color) *Paragraph {
 
 // Alignment sets the paragraph's horizontal text alignment.
 func (pg *Paragraph) Alignment(a Alignment) *Paragraph {
+	pg.pPr().Algn = string(a)
+	return pg
+}
+
+// pPr returns the paragraph's a:pPr, allocating it on first use.
+func (pg *Paragraph) pPr() *drawingml.PPr {
 	if pg.p.PPr == nil {
 		pg.p.PPr = &drawingml.PPr{}
 	}
-	pg.p.PPr.Algn = string(a)
+	return pg.p.PPr
+}
+
+// Level sets the paragraph's outline level (0-8, PowerPoint's UI levels
+// 1-9), which controls indent and bullet inheritance from the list style.
+func (pg *Paragraph) Level(lvl int) *Paragraph {
+	pg.pPr().Lvl = lvl
+	return pg
+}
+
+// Indent sets the paragraph's left margin and first-line indent, both in
+// points. A negative firstLine produces a hanging indent — the common
+// bulleted-text layout where the bullet sits to the left of wrapped text.
+func (pg *Paragraph) Indent(marginLeft, firstLine float64) *Paragraph {
+	pg.pPr().MarL = int(marginLeft * drawingml.EMUsPerPoint)
+	pg.pPr().Indent = int(firstLine * drawingml.EMUsPerPoint)
+	return pg
+}
+
+// clearBullet resets every bullet-group field so exactly one of
+// Bullet/NumberedBullet/NoBullet takes effect, matching the schema's
+// mutually-exclusive EG_TextBullet choice group.
+func (pg *Paragraph) clearBullet() {
+	pPr := pg.pPr()
+	pPr.BuFont, pPr.BuNone, pPr.BuAutoNum, pPr.BuChar = nil, nil, nil, nil
+}
+
+// Bullet sets this paragraph's bullet to an explicit character (e.g. "•"),
+// drawn in the given font (e.g. "Arial") — PowerPoint needs that font
+// declared alongside the character, or the bullet renders as a
+// missing-glyph box. Explicit only: this is a per-paragraph override, not
+// the master-inherited bullet a placeholder would otherwise pick up.
+func (pg *Paragraph) Bullet(char, font string) *Paragraph {
+	pg.clearBullet()
+	pg.pPr().BuFont = &drawingml.BuFont{Typeface: font}
+	pg.pPr().BuChar = &drawingml.BuChar{Char: char}
+	return pg
+}
+
+// NumberedBullet sets this paragraph's bullet to an automatically numbered
+// scheme (e.g. NumArabicPeriod for "1.", "2.", ...).
+func (pg *Paragraph) NumberedBullet(scheme NumberingScheme) *Paragraph {
+	pg.clearBullet()
+	pg.pPr().BuAutoNum = &drawingml.BuAutoNum{Type: string(scheme)}
+	return pg
+}
+
+// NoBullet explicitly suppresses any bullet for this paragraph.
+func (pg *Paragraph) NoBullet() *Paragraph {
+	pg.clearBullet()
+	pg.pPr().BuNone = &drawingml.BuNone{}
+	return pg
+}
+
+// LineSpacing sets this paragraph's line spacing as a percentage of single
+// spacing (100 = single, 150 = 1.5x, 200 = double).
+func (pg *Paragraph) LineSpacing(percent float64) *Paragraph {
+	pg.pPr().LnSpc = &drawingml.TextSpacing{SpcPct: &drawingml.SpcPct{Val: int(math.Round(percent * 1000))}}
+	return pg
+}
+
+// SpaceBefore sets the space before this paragraph, in points.
+func (pg *Paragraph) SpaceBefore(points float64) *Paragraph {
+	pg.pPr().SpcBef = &drawingml.TextSpacing{SpcPts: &drawingml.SpcPts{Val: int(math.Round(points * 100))}}
+	return pg
+}
+
+// SpaceAfter sets the space after this paragraph, in points.
+func (pg *Paragraph) SpaceAfter(points float64) *Paragraph {
+	pg.pPr().SpcAft = &drawingml.TextSpacing{SpcPts: &drawingml.SpcPts{Val: int(math.Round(points * 100))}}
 	return pg
 }
