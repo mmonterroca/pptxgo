@@ -34,10 +34,15 @@ import (
 // own extent (p:xfrm/a:ext), which ColumnWidth/RowHeight keep in sync with
 // the table's actual total width/height — without that, resizing a column
 // would change a:tblGrid but leave the frame's own bounding box stale.
+// slidePath is the owning slide's part path, threaded down to each cell's
+// Paragraph so Paragraph.Hyperlink (called from inside a table cell) scopes
+// its relationship to the slide's own .rels, not the package root's — see
+// ShapeRef.slidePath for the same requirement on shapes/text boxes.
 type Table struct {
-	pres *Presentation
-	tbl  *drawingml.Tbl
-	ext  *drawingml.Ext
+	pres      *Presentation
+	slidePath string
+	tbl       *drawingml.Tbl
+	ext       *drawingml.Ext
 }
 
 // Cell returns a handle for setting the content of the cell at (row, col),
@@ -46,7 +51,7 @@ type Table struct {
 // AddTable and never grows.
 func (t *Table) Cell(row, col int) *TableCell {
 	tc := t.tbl.Trs[row].Tcs[col]
-	return &TableCell{pres: t.pres, tc: tc}
+	return &TableCell{pres: t.pres, slidePath: t.slidePath, tc: tc}
 }
 
 // ColumnWidth sets the width of the given column, in EMUs (see the
@@ -99,21 +104,22 @@ func (t *Table) RowHeight(row, heightEMU int) *Table {
 // TableCell is a handle onto a single table cell (a:tc), returned by
 // Table.Cell.
 type TableCell struct {
-	pres *Presentation
-	tc   *drawingml.Tc
+	pres      *Presentation
+	slidePath string
+	tc        *drawingml.Tc
 }
 
 // AddParagraph appends a new, empty paragraph to the cell and returns a
 // handle for adding runs and formatting to it — the same Paragraph type
-// Slide.AddTextBox uses, so bold, alignment, and every other text-
-// formatting method apply equally inside a table cell.
+// Slide.AddTextBox uses, so bold, alignment, hyperlinks, and every other
+// text-formatting method apply equally inside a table cell.
 func (c *TableCell) AddParagraph() *Paragraph {
 	if c.tc.TxBody == nil {
 		c.tc.TxBody = drawingml.NewTextBody()
 	}
 	p := &drawingml.Paragraph{}
 	c.tc.TxBody.Paragraphs = append(c.tc.TxBody.Paragraphs, p)
-	return &Paragraph{pres: c.pres, p: p}
+	return &Paragraph{pres: c.pres, slidePath: c.slidePath, p: p}
 }
 
 // Text is shorthand for AddParagraph().Text(s) — the common case of a

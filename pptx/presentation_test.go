@@ -29,6 +29,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"image/png"
+	"math"
 	"os"
 	"regexp"
 	"strings"
@@ -377,6 +378,496 @@ func TestTextBox_FillAndBorder_EmitsSolidFillBeforeLn(t *testing.T) {
 	}
 }
 
+func TestAddShape_UsesGivenPresetGeometryNotRect(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeEllipse, Inches(1), Inches(1), Inches(2), Inches(2)).
+		AddParagraph().Text("On Track")
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:prstGeom prst="ellipse">`) {
+		t.Errorf("expected prst=\"ellipse\", got %s", slide)
+	}
+	if strings.Contains(slide, `txBox="true"`) {
+		t.Errorf("expected AddShape not to set the txBox marker (that's AddTextBox-only), got %s", slide)
+	}
+	if !strings.Contains(slide, "On Track") {
+		t.Errorf("expected shape text content, got %s", slide)
+	}
+}
+
+func TestAddTextBox_StillSetsTxBoxMarkerAndRectGeometry(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTextBox(Inches(1), Inches(1), Inches(2), Inches(2))
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:prstGeom prst="rect">`) {
+		t.Errorf("expected prst=\"rect\", got %s", slide)
+	}
+	if !strings.Contains(slide, `txBox="true"`) {
+		t.Errorf("expected the txBox marker preserved after the AddShape refactor, got %s", slide)
+	}
+}
+
+func TestShapeRef_RotationConvertsDegreesTo60000ths(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).Rotation(45)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	// 45 degrees * 60,000 = 2,700,000.
+	if !strings.Contains(slide, `rot="2700000"`) {
+		t.Errorf("expected rot=\"2700000\" (45 degrees), got %s", slide)
+	}
+}
+
+func TestShapeRef_NegativeRotationIsPreserved(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).Rotation(-90)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `rot="-5400000"`) {
+		t.Errorf("expected rot=\"-5400000\" (-90 degrees), got %s", slide)
+	}
+}
+
+func TestShapeRef_RotationNormalizesBeyondFullTurn(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	// 36000 degrees * 60,000 = 2,160,000,000, which overflows ST_Angle's
+	// underlying 32-bit signed int (max 2,147,483,647) if emitted
+	// un-normalized. 36000 mod 360 = 0, so this must normalize to rot="0"
+	// (or simply omit the attribute, since 0 is Xfrm.Rot's zero value).
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).Rotation(36000)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if strings.Contains(slide, `rot="2160000000"`) {
+		t.Fatalf("expected rotation to be normalized mod 360, not overflow ST_Angle, got %s", slide)
+	}
+	if err := p.Save(&bytes.Buffer{}); err != nil {
+		t.Fatalf("expected no error for a large-but-finite rotation, got %v", err)
+	}
+}
+
+func TestShapeRef_RotationBeyondOneTurnMatchesEquivalentAngle(t *testing.T) {
+	p1 := New()
+	s1 := p1.AddSlide()
+	s1.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).Rotation(405)
+	files1 := generateFrom(t, p1)
+
+	p2 := New()
+	s2 := p2.AddSlide()
+	s2.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).Rotation(45)
+	files2 := generateFrom(t, p2)
+
+	// 405 degrees is the same rotation as 45 degrees (405 - 360 = 45).
+	slide1 := string(files1["ppt/slides/slide1.xml"])
+	slide2 := string(files2["ppt/slides/slide1.xml"])
+	if slide1 != slide2 {
+		t.Errorf("expected Rotation(405) to normalize identically to Rotation(45):\n405: %s\n45: %s", slide1, slide2)
+	}
+}
+
+func TestShapeRef_RotationNaNAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).Rotation(math.NaN())
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated NaN-rotation error")
+	}
+}
+
+func TestAddShape_InvalidPresetGeometryAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(PresetGeometry("rectangel"), Inches(1), Inches(1), Inches(2), Inches(2))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated invalid-preset-geometry error")
+	}
+}
+
+func TestAddShape_EveryDocumentedShapeConstantIsValid(t *testing.T) {
+	for _, prst := range []PresetGeometry{
+		ShapeRect, ShapeRoundRect, ShapeEllipse, ShapeTriangle, ShapeRightTriangle,
+		ShapeParallelogram, ShapeTrapezoid, ShapeDiamond, ShapePentagon, ShapeHexagon,
+		ShapeHeptagon, ShapeOctagon, ShapeStar4, ShapeStar5, ShapeStar6, ShapeStar8,
+		ShapeRightArrow, ShapeLeftArrow, ShapeUpArrow, ShapeDownArrow, ShapeLeftRightArrow,
+		ShapeUpDownArrow, ShapeChevron, ShapeDonut, ShapeNoSmoking, ShapeHeart,
+		ShapeLightningBolt, ShapeSun, ShapeMoon, ShapeCloud, ShapeArc, ShapePlaque,
+		ShapeCan, ShapeCube, ShapeBevel, ShapeSmileyFace, ShapeWave, ShapeDoubleWave,
+	} {
+		if !IsValidPresetGeometry(prst) {
+			t.Errorf("expected %q (a documented Shape* constant) to be a valid ST_ShapeType", prst)
+		}
+	}
+}
+
+func TestShapeRef_FlipHAndFlipVSetXfrmAttrs(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).FlipH().FlipV()
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `flipH="true"`) {
+		t.Errorf("expected flipH=\"true\", got %s", slide)
+	}
+	if !strings.Contains(slide, `flipV="true"`) {
+		t.Errorf("expected flipV=\"true\", got %s", slide)
+	}
+}
+
+func TestParagraph_BulletEmitsCharAndFontBeforeChar(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("First item").Bullet("•", "Arial").Indent(18, -18).Level(1)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:buChar char="•">`) && !strings.Contains(slide, `char="•"`) {
+		t.Errorf("expected buChar with the bullet glyph, got %s", slide)
+	}
+	if !strings.Contains(slide, `typeface="Arial"`) {
+		t.Errorf("expected buFont typeface=\"Arial\", got %s", slide)
+	}
+	buFontIdx := strings.Index(slide, "<a:buFont")
+	buCharIdx := strings.Index(slide, "<a:buChar")
+	if buFontIdx == -1 || buCharIdx == -1 || buFontIdx > buCharIdx {
+		t.Errorf("expected a:buFont before a:buChar, got %s", slide)
+	}
+	if !strings.Contains(slide, `lvl="1"`) {
+		t.Errorf("expected lvl=\"1\", got %s", slide)
+	}
+}
+
+func TestParagraph_NumberedBulletSetsAutoNumType(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("Step one").NumberedBullet(NumArabicPeriod)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:buAutoNum type="arabicPeriod">`) {
+		t.Errorf("expected buAutoNum type=\"arabicPeriod\", got %s", slide)
+	}
+}
+
+func TestParagraph_NoBulletOverridesEarlierBulletCall(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("Plain").Bullet("•", "Arial").NoBullet()
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if strings.Contains(slide, "a:buChar") || strings.Contains(slide, "a:buFont") {
+		t.Errorf("expected NoBullet to clear the earlier Bullet call, got %s", slide)
+	}
+	if !strings.Contains(slide, "<a:buNone>") {
+		t.Errorf("expected a:buNone, got %s", slide)
+	}
+}
+
+func TestParagraph_SpacingEmitsPercentAndPoints(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("Spaced").LineSpacing(150).SpaceBefore(6).SpaceAfter(12)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:spcPct val="150000">`) {
+		t.Errorf("expected lnSpc spcPct val=\"150000\" (150%%), got %s", slide)
+	}
+	// 6pt and 12pt in hundredths of a point.
+	if !strings.Contains(slide, `<a:spcPts val="600">`) {
+		t.Errorf("expected spcBef spcPts val=\"600\" (6pt), got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:spcPts val="1200">`) {
+		t.Errorf("expected spcAft spcPts val=\"1200\" (12pt), got %s", slide)
+	}
+}
+
+func TestShapeRef_AutofitSwitchesAmongTheThreeModes(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2)).Autofit(AutofitShrinkText)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, "<a:normAutofit>") {
+		t.Errorf("expected a:normAutofit, got %s", slide)
+	}
+	if strings.Contains(slide, "a:noAutofit") || strings.Contains(slide, "a:spAutoFit") {
+		t.Errorf("expected only normAutofit present, got %s", slide)
+	}
+}
+
+func TestShapeRef_InsetsAnchorAndWordWrap(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2)).
+		Insets(10, 5, 10, 5).
+		Anchor(AnchorMiddle).
+		WordWrap(false)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `anchor="ctr"`) {
+		t.Errorf("expected anchor=\"ctr\", got %s", slide)
+	}
+	if !strings.Contains(slide, `wrap="none"`) {
+		t.Errorf("expected wrap=\"none\", got %s", slide)
+	}
+	// 10pt = 127000 EMU, 5pt = 63500 EMU.
+	if !strings.Contains(slide, `lIns="127000"`) || !strings.Contains(slide, `tIns="63500"`) {
+		t.Errorf("expected lIns=\"127000\" and tIns=\"63500\", got %s", slide)
+	}
+}
+
+func TestShapeRef_FillSchemeEmitsSchemeClrNotSrgbClr(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		FillScheme(SchemeAccent1).
+		BorderScheme(SchemeDark2, 1.0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:schemeClr val="accent1">`) {
+		t.Errorf("expected fill schemeClr val=\"accent1\", got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:schemeClr val="dk2">`) {
+		t.Errorf("expected border schemeClr val=\"dk2\", got %s", slide)
+	}
+	if strings.Contains(slide, "a:srgbClr") {
+		t.Errorf("expected no a:srgbClr when using scheme colors, got %s", slide)
+	}
+}
+
+func TestShapeRef_FillThenNoFillClearsSolidFill(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		Fill(RGB(0xFF, 0, 0)).
+		NoFill()
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, "<a:noFill>") {
+		t.Errorf("expected a:noFill, got %s", slide)
+	}
+	if strings.Contains(slide, "a:solidFill") {
+		t.Errorf("expected NoFill to clear the earlier Fill call, got %s", slide)
+	}
+}
+
+func TestShapeRef_NoFillThenFillClearsNoFill(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		NoFill().
+		Fill(RGB(0, 0xFF, 0))
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if strings.Contains(slide, "a:noFill") {
+		t.Errorf("expected Fill to clear the earlier NoFill call, got %s", slide)
+	}
+	if !strings.Contains(slide, "a:solidFill") {
+		t.Errorf("expected a:solidFill present, got %s", slide)
+	}
+}
+
+func TestParagraph_ColorSchemeEmitsSchemeClr(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("Themed").ColorScheme(SchemeAccent2)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:schemeClr val="accent2">`) {
+		t.Errorf("expected run color schemeClr val=\"accent2\", got %s", slide)
+	}
+}
+
+func TestSlide_BackgroundEmitsBgBeforeSpTree(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.Background(RGB(0x1F, 0x49, 0x7D))
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	bgIdx := strings.Index(slide, "<p:bg>")
+	spTreeIdx := strings.Index(slide, "<p:spTree>")
+	if bgIdx == -1 || spTreeIdx == -1 || bgIdx > spTreeIdx {
+		t.Errorf("expected p:bg before p:spTree, got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:srgbClr val="1F497D">`) {
+		t.Errorf("expected background srgbClr val=\"1F497D\", got %s", slide)
+	}
+}
+
+func TestSlide_BackgroundSchemeEmitsSchemeClr(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.BackgroundScheme(SchemeLight1)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:schemeClr val="lt1">`) {
+		t.Errorf("expected background schemeClr val=\"lt1\", got %s", slide)
+	}
+}
+
+func TestSlide_NoBackgroundOmitsBgElement(t *testing.T) {
+	p := New()
+	p.AddSlide()
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if strings.Contains(slide, "<p:bg>") {
+		t.Errorf("expected no p:bg when Background is never called, got %s", slide)
+	}
+}
+
+func TestShapeRef_InsetsExplicitZeroIsNotDroppedByOmitempty(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2)).Insets(0, 0, 0, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	for _, want := range []string{`lIns="0"`, `tIns="0"`, `rIns="0"`, `bIns="0"`} {
+		if !strings.Contains(slide, want) {
+			t.Errorf("expected explicit zero inset %s to marshal (not be dropped as unset), got %s", want, slide)
+		}
+	}
+}
+
+func TestShapeRef_InsetsRoundsRatherThanTruncates(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	// 2.3pt * 12700 EMU/pt = 29209.999999999996 in float64 — direct int()
+	// truncates to 29209, but the correct rounded EMU value is 29210.
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2)).Insets(2.3, 0, 0, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `lIns="29210"`) {
+		t.Errorf("expected lIns=\"29210\" (rounded, not truncated to 29209), got %s", slide)
+	}
+}
+
+func TestParagraph_IndentExplicitZeroIsNotDroppedByOmitempty(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("no indent").Indent(0, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `marL="0"`) || !strings.Contains(slide, `indent="0"`) {
+		t.Errorf("expected marL=\"0\" and indent=\"0\" to marshal (not be dropped as unset), got %s", slide)
+	}
+}
+
+func TestParagraph_IndentRoundsRatherThanTruncates(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("x").Indent(2.3, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `marL="29210"`) {
+		t.Errorf("expected marL=\"29210\" (rounded, not truncated to 29209), got %s", slide)
+	}
+}
+
+func TestParagraph_LevelOutOfRangeAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("x").Level(9)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated out-of-range Level error")
+	}
+}
+
+func TestParagraph_LevelNegativeAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("x").Level(-1)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated negative-Level error")
+	}
+}
+
+func TestParagraph_LevelBoundaryValuesDoNotError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("a").Level(0)
+	tb.AddParagraph().Text("b").Level(8)
+
+	if err := p.Save(&bytes.Buffer{}); err != nil {
+		t.Fatalf("expected no error for boundary-valid levels 0 and 8, got %v", err)
+	}
+}
+
+func TestParagraph_LevelZeroMarshalsExplicitly(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("x").Level(0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `lvl="0"`) {
+		t.Errorf("expected an explicit Level(0) call to marshal lvl=\"0\" (not be dropped by omitempty), got %s", slide)
+	}
+}
+
 func TestAddImage_MissingFileAccumulatesError(t *testing.T) {
 	p := New()
 	s := p.AddSlide()
@@ -702,7 +1193,256 @@ func TestTable_RowHeightResyncsGraphicFrameExtent(t *testing.T) {
 	}
 }
 
+func TestBorder_NaNWidthAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	// NaN fails both the "< 0" and "> max" comparisons (every comparison
+	// against NaN is false), so it must be checked explicitly rather than
+	// falling through to the range check.
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2)).Border(RGB(0, 0, 0), math.NaN())
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated NaN-width error")
+	}
+}
+
+func TestBorderScheme_NaNWidthAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).BorderScheme(SchemeAccent1, math.NaN())
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated NaN-width error")
+	}
+}
+
+func TestBorder_RoundsRatherThanTruncates(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	// 2.3pt * 12700 EMU/pt = 29209.999999999996 in float64 — direct int()
+	// truncates to 29209, but the correct rounded EMU value is 29210.
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2)).Border(RGB(0, 0, 0), 2.3)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:ln w="29210">`) {
+		t.Errorf("expected a:ln w=\"29210\" (rounded, not truncated to 29209), got %s", slide)
+	}
+}
+
+func TestSchemeColor_Bg1Tx1Bg2Tx2AreDistinctFromDk1Lt1(t *testing.T) {
+	// bg1/tx1/bg2/tx2 are aliases (through the default color map) for
+	// lt1/dk1/lt2/dk2, not new theme slots — but they are distinct valid
+	// ST_SchemeColorVal strings, and must marshal as given rather than
+	// being silently rewritten to their dk/lt equivalent.
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).FillScheme(SchemeBackground1)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:schemeClr val="bg1">`) {
+		t.Errorf("expected schemeClr val=\"bg1\", got %s", slide)
+	}
+}
+
 // pngBytes returns a solid-color w x h PNG, encoded in memory.
+func TestParagraph_HyperlinkEmitsHlinkClickAndSlideScopedRel(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("Learn more").Hyperlink("https://example.com/docs")
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+	rels := string(files["ppt/slides/_rels/slide1.xml.rels"])
+
+	if !strings.Contains(slide, "<a:hlinkClick") {
+		t.Fatalf("expected a:hlinkClick in slide1.xml, got %s", slide)
+	}
+	if !strings.Contains(rels, `Target="https://example.com/docs"`) || !strings.Contains(rels, `TargetMode="External"`) {
+		t.Errorf("expected an External relationship to the hyperlink URL, got %s", rels)
+	}
+}
+
+func TestTableCell_HyperlinkScopesToSlideRelsNotRootRels(t *testing.T) {
+	// Regression test for a landmine found in manual review of PR #10:
+	// Table/TableCell must thread the owning slide's path down to the
+	// Paragraph they hand back, the same way ShapeRef does — otherwise a
+	// Hyperlink call from inside a table cell resolves its slidePath to
+	// "", and Presentation.pkg.Relationships("") returns the package
+	// ROOT's relationship manager instead of the slide's own, silently
+	// writing the relationship to the wrong .rels file.
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(1, 1, Inches(1), Inches(1), Inches(4), Inches(1))
+	tbl.Cell(0, 0).AddParagraph().Text("See report").Hyperlink("https://example.com/report")
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+	slideRels := string(files["ppt/slides/_rels/slide1.xml.rels"])
+	rootRels := string(files["_rels/.rels"])
+
+	if !strings.Contains(slide, "<a:hlinkClick") {
+		t.Fatalf("expected a:hlinkClick in slide1.xml, got %s", slide)
+	}
+	if !strings.Contains(slideRels, `Target="https://example.com/report"`) {
+		t.Errorf("expected the hyperlink relationship in the slide's own .rels, got %s", slideRels)
+	}
+	if strings.Contains(rootRels, "https://example.com/report") {
+		t.Errorf("expected the hyperlink relationship NOT to leak into the package root's _rels/.rels, got %s", rootRels)
+	}
+}
+
+func TestParagraph_HyperlinkBeforeTextIsANoOp(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Hyperlink("https://example.com").Text("plain")
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+	if strings.Contains(slide, "a:hlinkClick") {
+		t.Errorf("expected Hyperlink called before Text to be a no-op, got %s", slide)
+	}
+}
+
+func TestAddImage_DedupsIdenticalContentOnSameSlide(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	img := pngBytes(t, 40, 40)
+	s.AddImageFromBytes(img, Inches(1), Inches(1))
+	s.AddImageFromBytes(img, Inches(3), Inches(1))
+
+	files := generateFrom(t, p)
+
+	mediaCount := 0
+	for name := range files {
+		if strings.HasPrefix(name, "ppt/media/") {
+			mediaCount++
+		}
+	}
+	if mediaCount != 1 {
+		t.Errorf("expected exactly 1 media part for two byte-identical images, got %d: %v", mediaCount, mapKeys(files))
+	}
+
+	rels := string(files["ppt/slides/_rels/slide1.xml.rels"])
+	if strings.Count(rels, "<Relationship ") != 2 { // slideLayout rel + the one deduped image rel; "<Relationship " (trailing space) excludes the root <Relationships> tag
+		t.Errorf("expected 2 relationships (slideLayout + 1 deduped image), got %s", rels)
+	}
+}
+
+func TestAddImage_DedupSharesOnePartAcrossSlidesButEachGetsOwnRel(t *testing.T) {
+	p := New()
+	img := pngBytes(t, 40, 40)
+	s1 := p.AddSlide()
+	s1.AddImageFromBytes(img, Inches(1), Inches(1))
+	s2 := p.AddSlide()
+	s2.AddImageFromBytes(img, Inches(1), Inches(1))
+
+	files := generateFrom(t, p)
+
+	mediaCount := 0
+	for name := range files {
+		if strings.HasPrefix(name, "ppt/media/") {
+			mediaCount++
+		}
+	}
+	if mediaCount != 1 {
+		t.Errorf("expected exactly 1 shared media part across both slides, got %d: %v", mediaCount, mapKeys(files))
+	}
+
+	for _, relsPath := range []string{"ppt/slides/_rels/slide1.xml.rels", "ppt/slides/_rels/slide2.xml.rels"} {
+		rels := string(files[relsPath])
+		if !strings.Contains(rels, "Target=\"../media/") {
+			t.Errorf("expected %s to have its own relationship to the shared media part, got %s", relsPath, rels)
+		}
+	}
+}
+
+func TestAddImage_DifferentContentGetsSeparateParts(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddImageFromBytes(pngBytes(t, 40, 40), Inches(1), Inches(1))
+	s.AddImageFromBytes(pngBytes(t, 60, 60), Inches(3), Inches(1))
+
+	files := generateFrom(t, p)
+
+	mediaCount := 0
+	for name := range files {
+		if strings.HasPrefix(name, "ppt/media/") {
+			mediaCount++
+		}
+	}
+	if mediaCount != 2 {
+		t.Errorf("expected 2 distinct media parts for differently-sized images, got %d: %v", mediaCount, mapKeys(files))
+	}
+}
+
+func TestNew_WithSlideSizeOverridesDefault(t *testing.T) {
+	p := New(WithSlideSize(Inches(10), Inches(7.5)))
+	files := generateFrom(t, p)
+	pres := string(files["ppt/presentation.xml"])
+
+	if !strings.Contains(pres, `<p:sldSz cx="9144000" cy="6858000">`) {
+		t.Errorf("expected a custom sldSz with no type attribute, got %s", pres)
+	}
+}
+
+func TestNew_WithStandard4x3SetsScreen4x3Type(t *testing.T) {
+	p := New(WithStandard4x3())
+	files := generateFrom(t, p)
+	pres := string(files["ppt/presentation.xml"])
+
+	if !strings.Contains(pres, `cx="9144000" cy="6858000" type="screen4x3"`) {
+		t.Errorf("expected the 4:3 preset with type=\"screen4x3\", got %s", pres)
+	}
+}
+
+func TestNew_DefaultIsStillWidescreen16x9(t *testing.T) {
+	p := New()
+	files := generateFrom(t, p)
+	pres := string(files["ppt/presentation.xml"])
+
+	if !strings.Contains(pres, `cx="12192000" cy="6858000" type="screen16x9"`) {
+		t.Errorf("expected New()'s default 16:9 widescreen size unchanged, got %s", pres)
+	}
+}
+
+func TestNew_WithSlideSizeTooSmallAccumulatesErrorAndKeepsDefault(t *testing.T) {
+	p := New(WithSlideSize(Inches(0.5), Inches(0.5)))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated too-small-slide-size error")
+	}
+}
+
+func TestNew_WithSlideSizeNegativeAccumulatesError(t *testing.T) {
+	p := New(WithSlideSize(-Inches(10), Inches(7.5)))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated negative-slide-size error")
+	}
+}
+
+func TestNew_WithSlideSizeTooLargeAccumulatesError(t *testing.T) {
+	p := New(WithSlideSize(maxSlideSizeEMU+1, Inches(7.5)))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated too-large-slide-size error")
+	}
+}
+
+func TestNew_WithSlideSizeBoundaryValuesDoNotError(t *testing.T) {
+	p := New(WithSlideSize(minSlideSizeEMU, maxSlideSizeEMU))
+
+	if err := p.Save(&bytes.Buffer{}); err != nil {
+		t.Fatalf("expected no error for boundary-valid slide size, got %v", err)
+	}
+}
+
 func pngBytes(t *testing.T, w, h int) []byte {
 	t.Helper()
 	var buf bytes.Buffer

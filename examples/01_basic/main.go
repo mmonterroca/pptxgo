@@ -54,7 +54,14 @@ func logoPNG() []byte {
 func main() {
 	p := pptx.New()
 
-	s := p.AddSlide()
+	s := p.AddSlide().BackgroundScheme(pptx.SchemeLight2)
+
+	badge := s.AddShape(pptx.ShapeRoundRect, pptx.Inches(9.5), pptx.Inches(1), pptx.Inches(1.8), pptx.Inches(0.6)).
+		FillScheme(pptx.SchemeAccent2).
+		BorderScheme(pptx.SchemeDark2, 1.0)
+	badge.AddParagraph().
+		Text("Q3 Update").Bold().FontSize(14).Font("Calibri").ColorScheme(pptx.SchemeLight1).
+		Alignment(pptx.AlignCenter)
 
 	tb := s.AddTextBox(pptx.Inches(1), pptx.Inches(1), pptx.Inches(8), pptx.Inches(2)).
 		Fill(pptx.RGB(0xE7, 0xE6, 0xE6)).
@@ -63,8 +70,39 @@ func main() {
 		Text("Quarterly Results").Bold().FontSize(32).Font("Calibri").Color(pptx.RGB(0x1F, 0x49, 0x7D)).
 		Alignment(pptx.AlignCenter)
 
-	s.AddImageFromBytes(logoPNG(), pptx.Inches(1), pptx.Inches(3.5)).
+	logo := logoPNG()
+	s.AddImageFromBytes(logo, pptx.Inches(1), pptx.Inches(3.5)).
 		Border(pptx.RGB(0x44, 0x54, 0x6A), 1.0)
+	// Same bytes as above, placed again elsewhere: pptx.Presentation dedups
+	// identical media content, so this embeds only one ppt/media/ part.
+	s.AddImageFromBytesWithSize(logo, pptx.Inches(11.6), pptx.Inches(6.9), pptx.Inches(0.5), pptx.Inches(0.31))
+
+	shape := s.AddShape(pptx.ShapeEllipse, pptx.Inches(9.8), pptx.Inches(1.8), pptx.Inches(2.5), pptx.Inches(1.3)).
+		Fill(pptx.RGB(0x1F, 0x49, 0x7D)).
+		Border(pptx.RGB(0x44, 0x54, 0x6A), 1.0).
+		Rotation(15).
+		FlipH()
+	shape.AddParagraph().
+		Text("On Track").Bold().FontSize(18).Font("Calibri").Color(pptx.RGB(0xFF, 0xFF, 0xFF)).
+		Alignment(pptx.AlignCenter)
+
+	list := s.AddTextBox(pptx.Inches(1), pptx.Inches(4.85), pptx.Inches(4.5), pptx.Inches(2)).
+		Autofit(pptx.AutofitShrinkText).
+		Insets(4, 4, 4, 4).
+		Anchor(pptx.AnchorTop)
+	list.AddParagraph().
+		Text("Revenue up 12% year over year").FontSize(16).Font("Calibri").
+		Bullet("•", "Arial").Indent(18, -18).SpaceAfter(6)
+	list.AddParagraph().
+		Text("Two new regions launched").FontSize(16).Font("Calibri").
+		Bullet("•", "Arial").Indent(18, -18).SpaceAfter(6)
+	list.AddParagraph().
+		Text("Next: expand partner channel").FontSize(16).Font("Calibri").
+		NumberedBullet(pptx.NumArabicPeriod).Indent(18, -18).Level(1)
+	list.AddParagraph().
+		Text("See the full report").FontSize(16).Font("Calibri").
+		ColorScheme(pptx.SchemeHyperlink).Underline().Hyperlink("https://example.com/quarterly-report").
+		Bullet("•", "Arial").Indent(18, -18)
 
 	tbl := s.AddTable(3, 3, pptx.Inches(6), pptx.Inches(3.5), pptx.Inches(6), pptx.Inches(2.25))
 	tbl.ColumnWidth(0, pptx.Inches(2.4))

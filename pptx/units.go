@@ -60,3 +60,119 @@ const (
 	AlignRight   Alignment = "r"
 	AlignJustify Alignment = "just"
 )
+
+// SchemeColor references a color slot in the active theme's color scheme
+// (a:schemeClr's val attribute, ST_SchemeColorVal — the slots the theme's
+// own a:clrScheme defines) rather than an explicit RGB value, so a
+// fill/border/text color automatically follows the theme. For use with
+// ShapeRef.FillScheme, ShapeRef.BorderScheme, Paragraph.ColorScheme, and
+// Slide.BackgroundScheme.
+type SchemeColor string
+
+// Theme color scheme slots. dk1/lt1/dk2/lt2 are the slots the theme's own
+// a:clrScheme defines directly; bg1/tx1/bg2/tx2 are the same four slots
+// under the aliases a slide's own p:clrMap maps them through (bg1->lt1,
+// tx1->dk1, bg2->lt2, tx2->dk2, in pptxgo's default color map — see
+// NewDefaultClrMap) — both forms are valid ST_SchemeColorVal values.
+const (
+	SchemeDark1             SchemeColor = "dk1"
+	SchemeLight1            SchemeColor = "lt1"
+	SchemeDark2             SchemeColor = "dk2"
+	SchemeLight2            SchemeColor = "lt2"
+	SchemeBackground1       SchemeColor = "bg1"
+	SchemeText1             SchemeColor = "tx1"
+	SchemeBackground2       SchemeColor = "bg2"
+	SchemeText2             SchemeColor = "tx2"
+	SchemeAccent1           SchemeColor = "accent1"
+	SchemeAccent2           SchemeColor = "accent2"
+	SchemeAccent3           SchemeColor = "accent3"
+	SchemeAccent4           SchemeColor = "accent4"
+	SchemeAccent5           SchemeColor = "accent5"
+	SchemeAccent6           SchemeColor = "accent6"
+	SchemeHyperlink         SchemeColor = "hlink"
+	SchemeFollowedHyperlink SchemeColor = "folHlink"
+)
+
+// NumberingScheme names an automatic bullet-numbering scheme (a:buAutoNum's
+// type attribute, ST_TextAutonumberScheme) for use with Paragraph.NumberedBullet.
+type NumberingScheme string
+
+// Common numbering schemes.
+const (
+	NumArabicPeriod  NumberingScheme = "arabicPeriod"  // "1.", "2.", ...
+	NumArabicParenR  NumberingScheme = "arabicParenR"  // "1)", "2)", ...
+	NumAlphaLcPeriod NumberingScheme = "alphaLcPeriod" // "a.", "b.", ...
+	NumAlphaUcPeriod NumberingScheme = "alphaUcPeriod" // "A.", "B.", ...
+	NumRomanLcPeriod NumberingScheme = "romanLcPeriod" // "i.", "ii.", ...
+	NumRomanUcPeriod NumberingScheme = "romanUcPeriod" // "I.", "II.", ...
+)
+
+// VerticalAnchor is a text body's vertical anchoring within its shape
+// (a:bodyPr's anchor attribute), for use with ShapeRef.Anchor.
+type VerticalAnchor string
+
+// Vertical anchor positions.
+const (
+	AnchorTop    VerticalAnchor = "t"
+	AnchorMiddle VerticalAnchor = "ctr"
+	AnchorBottom VerticalAnchor = "b"
+)
+
+// AutofitMode controls how a shape's text behaves when it overflows the
+// shape's bounds, for use with ShapeRef.Autofit.
+type AutofitMode string
+
+// Autofit modes.
+const (
+	AutofitNone        AutofitMode = "none"  // text may overflow the shape uncorrected
+	AutofitShrinkText  AutofitMode = "text"  // shrink font/line-spacing to fit
+	AutofitResizeShape AutofitMode = "shape" // grow the shape to fit the text
+)
+
+// PresetGeometry names a preset autoshape outline (a:prstGeom's prst
+// attribute, schema type ST_ShapeType) for use with Slide.AddShape. This is
+// a representative subset of the ~180 shapes ST_ShapeType allows; any other
+// valid preset name can still be passed as a plain PresetGeometry("name").
+type PresetGeometry string
+
+// Common preset geometries.
+const (
+	ShapeRect           PresetGeometry = "rect"
+	ShapeRoundRect      PresetGeometry = "roundRect"
+	ShapeEllipse        PresetGeometry = "ellipse"
+	ShapeTriangle       PresetGeometry = "triangle"
+	ShapeRightTriangle  PresetGeometry = "rtTriangle"
+	ShapeParallelogram  PresetGeometry = "parallelogram"
+	ShapeTrapezoid      PresetGeometry = "trapezoid"
+	ShapeDiamond        PresetGeometry = "diamond"
+	ShapePentagon       PresetGeometry = "pentagon"
+	ShapeHexagon        PresetGeometry = "hexagon"
+	ShapeHeptagon       PresetGeometry = "heptagon"
+	ShapeOctagon        PresetGeometry = "octagon"
+	ShapeStar4          PresetGeometry = "star4"
+	ShapeStar5          PresetGeometry = "star5"
+	ShapeStar6          PresetGeometry = "star6"
+	ShapeStar8          PresetGeometry = "star8"
+	ShapeRightArrow     PresetGeometry = "rightArrow"
+	ShapeLeftArrow      PresetGeometry = "leftArrow"
+	ShapeUpArrow        PresetGeometry = "upArrow"
+	ShapeDownArrow      PresetGeometry = "downArrow"
+	ShapeLeftRightArrow PresetGeometry = "leftRightArrow"
+	ShapeUpDownArrow    PresetGeometry = "upDownArrow"
+	ShapeChevron        PresetGeometry = "chevron"
+	ShapeDonut          PresetGeometry = "donut"
+	ShapeNoSmoking      PresetGeometry = "noSmoking"
+	ShapeHeart          PresetGeometry = "heart"
+	ShapeLightningBolt  PresetGeometry = "lightningBolt"
+	ShapeSun            PresetGeometry = "sun"
+	ShapeMoon           PresetGeometry = "moon"
+	ShapeCloud          PresetGeometry = "cloud"
+	ShapeArc            PresetGeometry = "arc"
+	ShapePlaque         PresetGeometry = "plaque"
+	ShapeCan            PresetGeometry = "can"
+	ShapeCube           PresetGeometry = "cube"
+	ShapeBevel          PresetGeometry = "bevel"
+	ShapeSmileyFace     PresetGeometry = "smileyFace"
+	ShapeWave           PresetGeometry = "wave"
+	ShapeDoubleWave     PresetGeometry = "doubleWave"
+)

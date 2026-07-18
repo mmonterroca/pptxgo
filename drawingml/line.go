@@ -40,3 +40,8 @@ type Ln struct {
 func NewLn(c Color, widthEMU int) *Ln {
 	return &Ln{W: widthEMU, SolidFill: NewSolidFillRGB(c)}
 }
+
+// NewLnScheme returns a theme-color outline of the given width in EMUs.
+func NewLnScheme(schemeColor string, widthEMU int) *Ln {
+	return &Ln{W: widthEMU, SolidFill: NewSolidFillScheme(schemeColor)}
+}

@@ -155,6 +155,52 @@ func TestTextBody_EmitsOneParagraphWhenCallerAddedNone(t *testing.T) {
 	}
 }
 
+func TestPPr_SpacingBeforeBuFontBeforeBuChar(t *testing.T) {
+	pPr := &PPr{
+		LnSpc:  &TextSpacing{SpcPct: &SpcPct{Val: 150000}},
+		SpcBef: &TextSpacing{SpcPts: &SpcPts{Val: 600}},
+		BuFont: &BuFont{Typeface: "Arial"},
+		BuChar: &BuChar{Char: "•"},
+	}
+	got := marshal(t, pPr)
+
+	lnSpcIdx := strings.Index(got, "<a:lnSpc")
+	spcBefIdx := strings.Index(got, "<a:spcBef")
+	buFontIdx := strings.Index(got, "<a:buFont")
+	buCharIdx := strings.Index(got, "<a:buChar")
+	if lnSpcIdx == -1 || spcBefIdx == -1 || buFontIdx == -1 || buCharIdx == -1 {
+		t.Fatalf("expected a:lnSpc, a:spcBef, a:buFont, and a:buChar all present, got %s", got)
+	}
+	if !(lnSpcIdx < spcBefIdx && spcBefIdx < buFontIdx && buFontIdx < buCharIdx) {
+		t.Errorf("expected a:lnSpc < a:spcBef < a:buFont < a:buChar order, got %s", got)
+	}
+	if !strings.Contains(got, `<a:spcPct val="150000">`) {
+		t.Errorf("expected spcPct val=\"150000\" (150%%), got %s", got)
+	}
+}
+
+func TestPPr_BuAutoNumMarshalsTypeAttr(t *testing.T) {
+	pPr := &PPr{BuAutoNum: &BuAutoNum{Type: "arabicPeriod"}}
+	got := marshal(t, pPr)
+	if !strings.Contains(got, `<a:buAutoNum type="arabicPeriod">`) {
+		t.Errorf("expected buAutoNum type attr, got %s", got)
+	}
+}
+
+func TestBodyPr_AutofitChoiceIsMutuallyExclusiveByConstruction(t *testing.T) {
+	// Only one of NoAutofit/NormAutofit/SpAutoFit should ever be set at
+	// once (enforced by pptx.ShapeRef.Autofit, not by this struct) — this
+	// asserts the one-set case marshals the expected single element.
+	body := &BodyPr{NormAutofit: &NormAutofit{}}
+	got := marshal(t, body)
+	if !strings.Contains(got, "<a:normAutofit>") {
+		t.Errorf("expected a:normAutofit, got %s", got)
+	}
+	if strings.Contains(got, "a:noAutofit") || strings.Contains(got, "a:spAutoFit") {
+		t.Errorf("expected only a:normAutofit present, got %s", got)
+	}
+}
+
 func TestTextBody_DefaultsBodyPrWhenCallerLeavesItNil(t *testing.T) {
 	// A caller constructing &TextBody{} directly (bypassing
 	// pptx.Slide.AddTextBox, which always sets BodyPr) must still get a

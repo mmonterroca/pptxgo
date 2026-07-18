@@ -45,6 +45,56 @@ func TestRelationshipManager_AddGeneratesSequentialIDs(t *testing.T) {
 	}
 }
 
+func TestRelationshipManager_AddImageReusesExistingImageRelToSameTarget(t *testing.T) {
+	rm := NewRelationshipManager()
+
+	id1, err := rm.AddImage("../media/image1.png")
+	if err != nil {
+		t.Fatalf("AddImage: %v", err)
+	}
+	id2, err := rm.AddImage("../media/image1.png")
+	if err != nil {
+		t.Fatalf("AddImage: %v", err)
+	}
+	if id1 != id2 {
+		t.Errorf("expected AddImage to reuse the existing rel (same ID), got %s and %s", id1, id2)
+	}
+	if rm.Count() != 1 {
+		t.Errorf("expected exactly 1 relationship after reusing the target, got %d", rm.Count())
+	}
+}
+
+func TestRelationshipManager_AddImageIgnoresNonImageRelWithSameTarget(t *testing.T) {
+	// A same-target relationship of a different type must not shadow an
+	// AddImage lookup — the type-scoped search (not a bare GetByTarget)
+	// is what guarantees this regardless of map iteration order.
+	rm := NewRelationshipManager()
+
+	hlinkID, err := rm.Add(RelTypeHyperlink, "../media/image1.png", "External")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	imgID, err := rm.AddImage("../media/image1.png")
+	if err != nil {
+		t.Fatalf("AddImage: %v", err)
+	}
+	if imgID == hlinkID {
+		t.Errorf("expected AddImage to create its own image relationship, not reuse the hyperlink's ID %s", hlinkID)
+	}
+	if rm.Count() != 2 {
+		t.Errorf("expected 2 distinct relationships (hyperlink + image), got %d", rm.Count())
+	}
+
+	rel, err := rm.Get(imgID)
+	if err != nil {
+		t.Fatalf("Get(%s): %v", imgID, err)
+	}
+	if rel.Type != RelTypeImage {
+		t.Errorf("expected the AddImage relationship to have RelTypeImage, got %s", rel.Type)
+	}
+}
+
 func TestRelationshipManager_InternalTargetModeOmitted(t *testing.T) {
 	rm := NewRelationshipManager()
 	id, err := rm.AddImage("media/image1.png")
