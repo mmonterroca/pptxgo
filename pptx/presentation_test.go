@@ -29,6 +29,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"image/png"
+	"math"
 	"os"
 	"regexp"
 	"strings"
@@ -437,6 +438,81 @@ func TestShapeRef_NegativeRotationIsPreserved(t *testing.T) {
 
 	if !strings.Contains(slide, `rot="-5400000"`) {
 		t.Errorf("expected rot=\"-5400000\" (-90 degrees), got %s", slide)
+	}
+}
+
+func TestShapeRef_RotationNormalizesBeyondFullTurn(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	// 36000 degrees * 60,000 = 2,160,000,000, which overflows ST_Angle's
+	// underlying 32-bit signed int (max 2,147,483,647) if emitted
+	// un-normalized. 36000 mod 360 = 0, so this must normalize to rot="0"
+	// (or simply omit the attribute, since 0 is Xfrm.Rot's zero value).
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).Rotation(36000)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if strings.Contains(slide, `rot="2160000000"`) {
+		t.Fatalf("expected rotation to be normalized mod 360, not overflow ST_Angle, got %s", slide)
+	}
+	if err := p.Save(&bytes.Buffer{}); err != nil {
+		t.Fatalf("expected no error for a large-but-finite rotation, got %v", err)
+	}
+}
+
+func TestShapeRef_RotationBeyondOneTurnMatchesEquivalentAngle(t *testing.T) {
+	p1 := New()
+	s1 := p1.AddSlide()
+	s1.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).Rotation(405)
+	files1 := generateFrom(t, p1)
+
+	p2 := New()
+	s2 := p2.AddSlide()
+	s2.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).Rotation(45)
+	files2 := generateFrom(t, p2)
+
+	// 405 degrees is the same rotation as 45 degrees (405 - 360 = 45).
+	slide1 := string(files1["ppt/slides/slide1.xml"])
+	slide2 := string(files2["ppt/slides/slide1.xml"])
+	if slide1 != slide2 {
+		t.Errorf("expected Rotation(405) to normalize identically to Rotation(45):\n405: %s\n45: %s", slide1, slide2)
+	}
+}
+
+func TestShapeRef_RotationNaNAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).Rotation(math.NaN())
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated NaN-rotation error")
+	}
+}
+
+func TestAddShape_InvalidPresetGeometryAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(PresetGeometry("rectangel"), Inches(1), Inches(1), Inches(2), Inches(2))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated invalid-preset-geometry error")
+	}
+}
+
+func TestAddShape_EveryDocumentedShapeConstantIsValid(t *testing.T) {
+	for _, prst := range []PresetGeometry{
+		ShapeRect, ShapeRoundRect, ShapeEllipse, ShapeTriangle, ShapeRightTriangle,
+		ShapeParallelogram, ShapeTrapezoid, ShapeDiamond, ShapePentagon, ShapeHexagon,
+		ShapeHeptagon, ShapeOctagon, ShapeStar4, ShapeStar5, ShapeStar6, ShapeStar8,
+		ShapeRightArrow, ShapeLeftArrow, ShapeUpArrow, ShapeDownArrow, ShapeLeftRightArrow,
+		ShapeUpDownArrow, ShapeChevron, ShapeDonut, ShapeNoSmoking, ShapeHeart,
+		ShapeLightningBolt, ShapeSun, ShapeMoon, ShapeCloud, ShapeArc, ShapePlaque,
+		ShapeCan, ShapeCube, ShapeBevel, ShapeSmileyFace, ShapeWave, ShapeDoubleWave,
+	} {
+		if !IsValidPresetGeometry(prst) {
+			t.Errorf("expected %q (a documented Shape* constant) to be a valid ST_ShapeType", prst)
+		}
 	}
 }
 
