@@ -54,7 +54,7 @@ func (s *Slide) AddTextBox(x, y, w, h int) *TextBox {
 	id := s.nextShapeID
 	s.nextShapeID++
 
-	body := &drawingml.TextBody{BodyPr: &drawingml.BodyPr{}, LstStyle: &drawingml.LstStyle{}}
+	body := drawingml.NewTextBody()
 	spPr := &SpPr{
 		Xfrm: &drawingml.Xfrm{
 			Off: &drawingml.Off{X: x, Y: y},
@@ -202,7 +202,24 @@ func (s *Slide) addPicture(data []byte, x, y, w, h int, useExplicitSize bool) *P
 // Unlike a shape or picture, a table is wrapped in a p:graphicFrame, not a
 // p:sp — a:tbl content lives entirely inline in the slide's own XML, with
 // no separate part or relationship the way an image needs one.
+//
+// rows and cols must both be positive (a table needs at least one of
+// each to mean anything); a non-positive value is recorded as an error on
+// the presentation (returned by Save) rather than dividing width/height
+// by zero, and is clamped to 1 so the rest of this method — and the
+// *Table it returns — has a well-formed table to build, even though Save
+// will refuse to write it.
 func (s *Slide) AddTable(rows, cols, x, y, w, h int) *Table {
+	if rows <= 0 || cols <= 0 {
+		s.pres.addErr(errors.InvalidArgument("AddTable", "rows/cols", [2]int{rows, cols}, "must both be positive"))
+		if rows <= 0 {
+			rows = 1
+		}
+		if cols <= 0 {
+			cols = 1
+		}
+	}
+
 	id := s.nextShapeID
 	s.nextShapeID++
 
@@ -225,7 +242,7 @@ func (s *Slide) AddTable(rows, cols, x, y, w, h int) *Table {
 		tr := &drawingml.Tr{H: rowH}
 		for c := 0; c < cols; c++ {
 			tr.Tcs = append(tr.Tcs, &drawingml.Tc{
-				TxBody: &drawingml.TextBody{BodyPr: &drawingml.BodyPr{}, LstStyle: &drawingml.LstStyle{}},
+				TxBody: drawingml.NewTextBody(),
 			})
 		}
 		tbl.Trs = append(tbl.Trs, tr)
@@ -245,5 +262,5 @@ func (s *Slide) AddTable(rows, cols, x, y, w, h int) *Table {
 	}
 	s.spTree.Content = append(s.spTree.Content, frame)
 
-	return &Table{pres: s.pres, tbl: tbl, rows: rows, cols: cols}
+	return &Table{pres: s.pres, tbl: tbl, ext: frame.Xfrm.Ext}
 }

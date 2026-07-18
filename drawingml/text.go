@@ -45,6 +45,17 @@ type TextBody struct {
 	Paragraphs []*Paragraph `xml:"a:p"`
 }
 
+// NewTextBody returns a minimal TextBody with BodyPr and LstStyle already
+// allocated (non-nil, empty) — the same "text container ready to fill in"
+// shape every builder that owns a text body (a text box, an autoshape, a
+// table cell) starts from. A caller that only needs schema-minimal output
+// could rely on MarshalXML's own defaulting of a bare &TextBody{} instead,
+// but a non-nil BodyPr is required up front by anything that later
+// mutates its fields (insets, autofit, anchor) without a nil check.
+func NewTextBody() *TextBody {
+	return &TextBody{BodyPr: &BodyPr{}, LstStyle: &LstStyle{}}
+}
+
 // MarshalXML fills two schema minimums a caller can otherwise leave unmet
 // by constructing a TextBody directly (bypassing pptx.Slide.AddTextBox,
 // which always sets both): CT_TextBody requires a:bodyPr before anything

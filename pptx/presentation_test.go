@@ -564,6 +564,125 @@ func TestAddTable_DefaultsToFirstRowBandedStyle(t *testing.T) {
 	}
 }
 
+func TestAddTable_ZeroColsAccumulatesErrorInsteadOfPanicking(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+
+	// Must not panic (divide-by-zero on w/cols); must instead accumulate
+	// an error Save reports.
+	s.AddTable(3, 0, Inches(1), Inches(1), Inches(6), Inches(2))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated zero-cols error")
+	}
+}
+
+func TestAddTable_ZeroRowsAccumulatesErrorInsteadOfPanicking(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+
+	s.AddTable(0, 3, Inches(1), Inches(1), Inches(6), Inches(2))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated zero-rows error")
+	}
+}
+
+func TestAddTable_NegativeRowsAndColsAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+
+	s.AddTable(-1, -2, Inches(1), Inches(1), Inches(6), Inches(2))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated negative rows/cols error")
+	}
+}
+
+func TestAddTable_PositiveRowsColsDoNotError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTable(2, 2, Inches(1), Inches(1), Inches(4), Inches(2))
+
+	if err := p.Save(&bytes.Buffer{}); err != nil {
+		t.Fatalf("expected no error for valid rows/cols, got %v", err)
+	}
+}
+
+func TestTable_ColumnWidthOutOfRangeAccumulatesErrorInsteadOfPanicking(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 2, Inches(1), Inches(1), Inches(4), Inches(2))
+
+	// Must not panic (slice out-of-range); must instead accumulate an
+	// error Save reports.
+	tbl.ColumnWidth(5, Inches(1))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated out-of-range column error")
+	}
+}
+
+func TestTable_RowHeightOutOfRangeAccumulatesErrorInsteadOfPanicking(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 2, Inches(1), Inches(1), Inches(4), Inches(2))
+
+	tbl.RowHeight(5, Inches(1))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated out-of-range row error")
+	}
+}
+
+func TestTable_ColumnWidthNegativeIndexAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 2, Inches(1), Inches(1), Inches(4), Inches(2))
+
+	tbl.ColumnWidth(-1, Inches(1))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated negative-index column error")
+	}
+}
+
+func TestTable_ColumnWidthResyncsGraphicFrameExtent(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	// 2 columns, 4in total -> 2in each (18288000/2 = 1828800 EMU... actually
+	// 4in = 3657600 EMU, split across 2 cols = 1828800 EMU each).
+	tbl := s.AddTable(1, 2, Inches(1), Inches(1), Inches(4), Inches(1))
+	tbl.ColumnWidth(0, Inches(3))
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	// New total width: col0 = 3in (2743200 EMU) + col1 unchanged (1828800
+	// EMU, half of the original 4in) = 4572000 EMU. The graphic frame's
+	// own p:xfrm/a:ext must reflect this new total, not the original 4in
+	// (3657600 EMU) passed to AddTable.
+	if !strings.Contains(slide, `<a:ext cx="4572000"`) {
+		t.Errorf("expected the graphic frame's a:ext to resync to the new total column width (4572000 EMU), got %s", slide)
+	}
+}
+
+func TestTable_RowHeightResyncsGraphicFrameExtent(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 1, Inches(1), Inches(1), Inches(2), Inches(2))
+	tbl.RowHeight(0, Inches(2))
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	// New total height: row0 = 2in (1828800 EMU) + row1 unchanged (1in,
+	// half of the original 2in = 914400 EMU) = 2743200 EMU.
+	if !strings.Contains(slide, `cy="2743200"`) {
+		t.Errorf("expected the graphic frame's a:ext to resync to the new total row height (2743200 EMU), got %s", slide)
+	}
+}
+
 // pngBytes returns a solid-color w x h PNG, encoded in memory.
 func pngBytes(t *testing.T, w, h int) []byte {
 	t.Helper()
