@@ -56,17 +56,25 @@ func newMasterSpTree(slideWidthEMU, slideHeightEMU int) *SpTree {
 	bodyW := titleW
 	bodyH := slideHeightEMU - bodyY - slideHeightEMU*masterBottomGapPct/100
 
+	title := newPlaceholderShape(2, "Title Placeholder 2", PlaceholderTitle, 0, &drawingml.Xfrm{
+		Off: &drawingml.Off{X: titleX, Y: titleY},
+		Ext: &drawingml.Ext{Cx: titleW, Cy: titleH},
+	})
+	body := newPlaceholderShape(3, "Body Placeholder 3", PlaceholderBody, 1, &drawingml.Xfrm{
+		Off: &drawingml.Off{X: bodyX, Y: bodyY},
+		Ext: &drawingml.Ext{Cx: bodyW, Cy: bodyH},
+	})
+	// The master's own placeholders are the root of the inheritance chain —
+	// unlike a layout/slide placeholder, there is no ancestor for them to
+	// inherit a:prstGeom from. Schema-wise a:prstGeom is optional here too,
+	// but some viewers (Google Slides, Keynote, various web previewers)
+	// don't reliably default a geometry-less placeholder to a rectangle, so
+	// set it explicitly rather than relying on that fallback.
+	title.SpPr.PrstGeom = &drawingml.PrstGeom{Prst: string(ShapeRect), AvLst: &drawingml.AvLst{}}
+	body.SpPr.PrstGeom = &drawingml.PrstGeom{Prst: string(ShapeRect), AvLst: &drawingml.AvLst{}}
+
 	spTree := NewEmptySpTree()
-	spTree.Content = append(spTree.Content,
-		newPlaceholderShape(2, "Title Placeholder 2", PlaceholderTitle, 0, &drawingml.Xfrm{
-			Off: &drawingml.Off{X: titleX, Y: titleY},
-			Ext: &drawingml.Ext{Cx: titleW, Cy: titleH},
-		}),
-		newPlaceholderShape(3, "Body Placeholder 3", PlaceholderBody, 1, &drawingml.Xfrm{
-			Off: &drawingml.Off{X: bodyX, Y: bodyY},
-			Ext: &drawingml.Ext{Cx: bodyW, Cy: bodyH},
-		}),
-	)
+	spTree.Content = append(spTree.Content, title, body)
 	return spTree
 }
 
@@ -78,7 +86,7 @@ func newMasterSpTree(slideWidthEMU, slideHeightEMU int) *SpTree {
 // layout placeholder, its master's) matching placeholder. Shared by the
 // master's own built-in placeholders (New) and, in later phases, standard
 // layouts and Slide.AddPlaceholder.
-func newPlaceholderShape(id uint32, name string, phType PlaceholderType, idx int, xfrm *drawingml.Xfrm) *Shape {
+func newPlaceholderShape(id uint32, name string, phType PlaceholderType, idx uint32, xfrm *drawingml.Xfrm) *Shape {
 	return &Shape{
 		NvSpPr: &NvSpPr{
 			CNvPr:   &CNvPr{ID: id, Name: name},
