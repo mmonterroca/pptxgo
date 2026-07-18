@@ -120,6 +120,17 @@ func main() {
 		}
 	}
 
+	// Second slide: built from the Title and Content standard layout via
+	// placeholders instead of freely-positioned shapes. Title/Body inherit
+	// their geometry from slideLayout3.xml's own title/body placeholders
+	// (which in turn inherit from the master's), rather than setting their
+	// own a:xfrm — the inheritance chain Fase 5 exists for.
+	s2 := p.AddSlide(pptx.WithLayout(pptx.LayoutTitleAndContent))
+	s2.Title("Next Steps")
+	body := s2.AddPlaceholder(pptx.PlaceholderBody, 1)
+	body.AddParagraph().Text("Renew the partner agreement").Bullet("•", "Arial")
+	body.AddParagraph().Text("Ship the Fase 5 stack").Bullet("•", "Arial")
+
 	f, err := os.Create("01_basic_demo.pptx")
 	if err != nil {
 		log.Fatal(err)
