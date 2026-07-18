@@ -1206,7 +1206,6 @@ func TestNew_WithSlideSizeBoundaryValuesDoNotError(t *testing.T) {
 	}
 }
 
-
 func pngBytes(t *testing.T, w, h int) []byte {
 	t.Helper()
 	var buf bytes.Buffer
