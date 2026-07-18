@@ -94,6 +94,6 @@ type Tc struct {
 	TxBody   *TextBody `xml:"a:txBody,omitempty"`
 	GridSpan int       `xml:"gridSpan,attr,omitempty"`
 	RowSpan  int       `xml:"rowSpan,attr,omitempty"`
-	HMerge   bool      `xml:"hMerge,attr,omitempty"`
-	VMerge   bool      `xml:"vMerge,attr,omitempty"`
+	HMerge   OnOff     `xml:"hMerge,attr,omitempty"`
+	VMerge   OnOff     `xml:"vMerge,attr,omitempty"`
 }

@@ -105,7 +105,7 @@ func main() {
 		ColorScheme(pptx.SchemeHyperlink).Underline().Hyperlink("https://example.com/quarterly-report").
 		Bullet("•", "Arial").Indent(18, -18)
 
-	tbl := s.AddTable(3, 3, pptx.Inches(6), pptx.Inches(3.5), pptx.Inches(6), pptx.Inches(2.25))
+	tbl := s.AddTable(4, 3, pptx.Inches(6), pptx.Inches(3.5), pptx.Inches(6), pptx.Inches(2.9))
 	tbl.ColumnWidth(0, pptx.Inches(2.4))
 	headers := []string{"Region", "Q3 Revenue", "YoY"}
 	for c, h := range headers {
@@ -120,6 +120,12 @@ func main() {
 			tbl.Cell(r+1, c).Text(v)
 		}
 	}
+	// Merge the "Total" row's first two columns into a single labeled cell —
+	// pptx.Table.MergeCells (gridSpan/hMerge on the surviving cells, no
+	// <a:tc> ever deleted).
+	tbl.MergeCells(3, 0, 3, 1)
+	tbl.Cell(3, 0).Text("Total").Bold()
+	tbl.Cell(3, 2).Text("+11%").Bold()
 
 	// Second slide: built from the Title and Content standard layout via
 	// placeholders instead of freely-positioned shapes. Title/Body inherit

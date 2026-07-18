@@ -1145,6 +1145,123 @@ func TestTable_RowHeightOutOfRangeAccumulatesErrorInsteadOfPanicking(t *testing.
 	}
 }
 
+func TestTable_MergeCells2x2EncodesAnchorTopLeftAndInteriorRoles(t *testing.T) {
+	// Ground truth extracted from a real merged table (a python-pptx-
+	// generated file, confirmed against the OpenXML SDK validator): the
+	// four cell roles in a rectangular merge each get a distinct attribute
+	// combination, not just a uniform hMerge/vMerge on every non-anchor cell.
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 2, Inches(1), Inches(1), Inches(4), Inches(4))
+	for r := 0; r < 2; r++ {
+		for c := 0; c < 2; c++ {
+			tbl.Cell(r, c).Text("x")
+		}
+	}
+	tbl.MergeCells(0, 0, 1, 1)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	for _, want := range []string{
+		`<a:tc gridSpan="2" rowSpan="2">`, // anchor (0,0)
+		`<a:tc rowSpan="2" hMerge="1">`,   // top row, non-anchor col (0,1)
+		`<a:tc gridSpan="2" vMerge="1">`,  // left col, non-anchor row (1,0)
+		`<a:tc hMerge="1" vMerge="1">`,    // interior/corner (1,1)
+	} {
+		if !strings.Contains(slide, want) {
+			t.Errorf("expected %q in merged table XML, got %s", want, slide)
+		}
+	}
+}
+
+func TestTable_MergeCellsHorizontalOnlyOmitsRowSpan(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(1, 3, Inches(1), Inches(1), Inches(6), Inches(1))
+	for c := 0; c < 3; c++ {
+		tbl.Cell(0, c).Text("x")
+	}
+	tbl.MergeCells(0, 0, 0, 1)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:tc gridSpan="2">`) {
+		t.Errorf("expected anchor with gridSpan=2 and no rowSpan, got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:tc hMerge="1">`) {
+		t.Errorf("expected continuation cell with bare hMerge, got %s", slide)
+	}
+	if strings.Contains(slide, "rowSpan") {
+		t.Errorf("expected no rowSpan for a purely horizontal merge, got %s", slide)
+	}
+}
+
+func TestTable_MergeCellsVerticalOnlyOmitsGridSpan(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(3, 1, Inches(1), Inches(1), Inches(2), Inches(3))
+	for r := 0; r < 3; r++ {
+		tbl.Cell(r, 0).Text("x")
+	}
+	tbl.MergeCells(0, 0, 1, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:tc rowSpan="2">`) {
+		t.Errorf("expected anchor with rowSpan=2 and no gridSpan, got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:tc vMerge="1">`) {
+		t.Errorf("expected continuation cell with bare vMerge, got %s", slide)
+	}
+	if strings.Contains(slide, "gridSpan") {
+		t.Errorf("expected no gridSpan for a purely vertical merge, got %s", slide)
+	}
+}
+
+func TestTable_MergeCellsEveryRowKeepsCellCountMatchingGrid(t *testing.T) {
+	// PowerPoint treats a row whose <a:tc> count disagrees with
+	// a:tblGrid's column count as corrupt — merging must never delete a
+	// cell, only mark it.
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(3, 3, Inches(1), Inches(1), Inches(6), Inches(3))
+	tbl.MergeCells(0, 0, 1, 1)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if strings.Count(slide, "<a:tc ")+strings.Count(slide, "<a:tc>") != 9 {
+		t.Errorf("expected all 9 <a:tc> elements to remain present after merging, got %s", slide)
+	}
+}
+
+func TestTable_MergeCellsOutOfRangeAccumulatesErrorInsteadOfPanicking(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 2, Inches(1), Inches(1), Inches(4), Inches(2))
+
+	tbl.MergeCells(0, 0, 5, 5)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated out-of-range merge error")
+	}
+}
+
+func TestTable_MergeCellsOverlapAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(3, 3, Inches(1), Inches(1), Inches(6), Inches(3))
+	tbl.MergeCells(0, 0, 1, 1)
+	tbl.MergeCells(1, 1, 2, 2) // overlaps the first merge's interior cell (1,1)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated overlapping-merge error")
+	}
+}
+
 func TestTable_ColumnWidthNegativeIndexAccumulatesError(t *testing.T) {
 	p := New()
 	s := p.AddSlide()

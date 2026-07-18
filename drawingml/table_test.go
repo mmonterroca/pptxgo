@@ -113,3 +113,22 @@ func TestTc_UnmergedCellOmitsSpanAndMergeAttrs(t *testing.T) {
 		}
 	}
 }
+
+func TestTc_HMergeVMergeMarshalAsOneZeroNotTrueFalse(t *testing.T) {
+	// Real PowerPoint output (and pptx.Table.MergeCells) always writes
+	// hMerge="1"/vMerge="1", never Go's default bool "true"/"false" — both
+	// are valid per xsd:boolean's lexical space, but matching the real
+	// convention is safer for non-SDK consumers.
+	tc := &Tc{TxBody: &TextBody{}, HMerge: true, VMerge: true}
+	got := marshal(t, tc)
+
+	if !strings.Contains(got, `hMerge="1"`) {
+		t.Errorf("expected hMerge=\"1\", got %s", got)
+	}
+	if !strings.Contains(got, `vMerge="1"`) {
+		t.Errorf("expected vMerge=\"1\", got %s", got)
+	}
+	if strings.Contains(got, "true") || strings.Contains(got, "false") {
+		t.Errorf("expected no true/false lexical form, got %s", got)
+	}
+}
