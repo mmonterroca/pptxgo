@@ -4,10 +4,19 @@ permissions:
   contents: read
 
 on:
+  # push is scoped to master: a push to a feature branch that has an open
+  # PR is already covered by that PR's own pull_request (synchronize)
+  # event, so scoping push here avoids a duplicate run per feature-branch
+  # push while still validating master after every merge.
   push:
     branches: [ master ]
+  # pull_request has NO branches filter on purpose: that filter matches a
+  # PR's *base* (target) branch, so scoping it to master meant a stacked
+  # PR targeting another feature branch (e.g. #12 based on #11's branch)
+  # never fired CI until it was retargeted to master — "no checks
+  # reported" for the whole time it was mid-stack. Firing on any base lets
+  # every PR in a stack get CI on its own base, from the first push.
   pull_request:
-    branches: [ master ]
 
 jobs:
   test-and-validate:
