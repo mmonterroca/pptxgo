@@ -532,6 +532,228 @@ func TestShapeRef_FlipHAndFlipVSetXfrmAttrs(t *testing.T) {
 	}
 }
 
+func TestParagraph_BulletEmitsCharAndFontBeforeChar(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("First item").Bullet("•", "Arial").Indent(18, -18).Level(1)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:buChar char="•">`) && !strings.Contains(slide, `char="•"`) {
+		t.Errorf("expected buChar with the bullet glyph, got %s", slide)
+	}
+	if !strings.Contains(slide, `typeface="Arial"`) {
+		t.Errorf("expected buFont typeface=\"Arial\", got %s", slide)
+	}
+	buFontIdx := strings.Index(slide, "<a:buFont")
+	buCharIdx := strings.Index(slide, "<a:buChar")
+	if buFontIdx == -1 || buCharIdx == -1 || buFontIdx > buCharIdx {
+		t.Errorf("expected a:buFont before a:buChar, got %s", slide)
+	}
+	if !strings.Contains(slide, `lvl="1"`) {
+		t.Errorf("expected lvl=\"1\", got %s", slide)
+	}
+}
+
+func TestParagraph_NumberedBulletSetsAutoNumType(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("Step one").NumberedBullet(NumArabicPeriod)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:buAutoNum type="arabicPeriod">`) {
+		t.Errorf("expected buAutoNum type=\"arabicPeriod\", got %s", slide)
+	}
+}
+
+func TestParagraph_NoBulletOverridesEarlierBulletCall(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("Plain").Bullet("•", "Arial").NoBullet()
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if strings.Contains(slide, "a:buChar") || strings.Contains(slide, "a:buFont") {
+		t.Errorf("expected NoBullet to clear the earlier Bullet call, got %s", slide)
+	}
+	if !strings.Contains(slide, "<a:buNone>") {
+		t.Errorf("expected a:buNone, got %s", slide)
+	}
+}
+
+func TestParagraph_SpacingEmitsPercentAndPoints(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("Spaced").LineSpacing(150).SpaceBefore(6).SpaceAfter(12)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:spcPct val="150000">`) {
+		t.Errorf("expected lnSpc spcPct val=\"150000\" (150%%), got %s", slide)
+	}
+	// 6pt and 12pt in hundredths of a point.
+	if !strings.Contains(slide, `<a:spcPts val="600">`) {
+		t.Errorf("expected spcBef spcPts val=\"600\" (6pt), got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:spcPts val="1200">`) {
+		t.Errorf("expected spcAft spcPts val=\"1200\" (12pt), got %s", slide)
+	}
+}
+
+func TestShapeRef_AutofitSwitchesAmongTheThreeModes(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2)).Autofit(AutofitShrinkText)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, "<a:normAutofit>") {
+		t.Errorf("expected a:normAutofit, got %s", slide)
+	}
+	if strings.Contains(slide, "a:noAutofit") || strings.Contains(slide, "a:spAutoFit") {
+		t.Errorf("expected only normAutofit present, got %s", slide)
+	}
+}
+
+func TestShapeRef_InsetsAnchorAndWordWrap(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2)).
+		Insets(10, 5, 10, 5).
+		Anchor(AnchorMiddle).
+		WordWrap(false)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `anchor="ctr"`) {
+		t.Errorf("expected anchor=\"ctr\", got %s", slide)
+	}
+	if !strings.Contains(slide, `wrap="none"`) {
+		t.Errorf("expected wrap=\"none\", got %s", slide)
+	}
+	// 10pt = 127000 EMU, 5pt = 63500 EMU.
+	if !strings.Contains(slide, `lIns="127000"`) || !strings.Contains(slide, `tIns="63500"`) {
+		t.Errorf("expected lIns=\"127000\" and tIns=\"63500\", got %s", slide)
+	}
+}
+
+func TestShapeRef_InsetsExplicitZeroIsNotDroppedByOmitempty(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2)).Insets(0, 0, 0, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	for _, want := range []string{`lIns="0"`, `tIns="0"`, `rIns="0"`, `bIns="0"`} {
+		if !strings.Contains(slide, want) {
+			t.Errorf("expected explicit zero inset %s to marshal (not be dropped as unset), got %s", want, slide)
+		}
+	}
+}
+
+func TestShapeRef_InsetsRoundsRatherThanTruncates(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	// 2.3pt * 12700 EMU/pt = 29209.999999999996 in float64 — direct int()
+	// truncates to 29209, but the correct rounded EMU value is 29210.
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2)).Insets(2.3, 0, 0, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `lIns="29210"`) {
+		t.Errorf("expected lIns=\"29210\" (rounded, not truncated to 29209), got %s", slide)
+	}
+}
+
+func TestParagraph_IndentExplicitZeroIsNotDroppedByOmitempty(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("no indent").Indent(0, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `marL="0"`) || !strings.Contains(slide, `indent="0"`) {
+		t.Errorf("expected marL=\"0\" and indent=\"0\" to marshal (not be dropped as unset), got %s", slide)
+	}
+}
+
+func TestParagraph_IndentRoundsRatherThanTruncates(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("x").Indent(2.3, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `marL="29210"`) {
+		t.Errorf("expected marL=\"29210\" (rounded, not truncated to 29209), got %s", slide)
+	}
+}
+
+func TestParagraph_LevelOutOfRangeAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("x").Level(9)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated out-of-range Level error")
+	}
+}
+
+func TestParagraph_LevelNegativeAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("x").Level(-1)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated negative-Level error")
+	}
+}
+
+func TestParagraph_LevelBoundaryValuesDoNotError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("a").Level(0)
+	tb.AddParagraph().Text("b").Level(8)
+
+	if err := p.Save(&bytes.Buffer{}); err != nil {
+		t.Fatalf("expected no error for boundary-valid levels 0 and 8, got %v", err)
+	}
+}
+
+func TestParagraph_LevelZeroMarshalsExplicitly(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("x").Level(0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `lvl="0"`) {
+		t.Errorf("expected an explicit Level(0) call to marshal lvl=\"0\" (not be dropped by omitempty), got %s", slide)
+	}
+}
+
 func TestAddImage_MissingFileAccumulatesError(t *testing.T) {
 	p := New()
 	s := p.AddSlide()

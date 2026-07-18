@@ -65,11 +65,48 @@ func (b *TextBody) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 }
 
 // BodyPr is a:bodyPr (CT_TextBodyProperties): body-level text formatting.
-// Every child and attribute (wrap, anchor, insets, autofit) is optional and
-// out of scope for Fase 2; the zero value marshals as the minimal valid
-// <a:bodyPr/>.
+// Attribute order doesn't matter (XML attributes are unordered), but the
+// autofit choice (NoAutofit/NormAutofit/SpAutoFit — CT_TextBodyProperties'
+// EG_TextAutofit group) is schema-required to come first among children;
+// since no other child element is modeled, that group is also the only one
+// emitted, so there is nothing to order it against. The zero value marshals
+// as the minimal valid <a:bodyPr/>.
 type BodyPr struct {
 	XMLName xml.Name `xml:"a:bodyPr"`
+	Wrap    string   `xml:"wrap,attr,omitempty"` // ST_TextWrappingType: "none" or "square"
+	// LIns/TIns/RIns/BIns are *int, not int, so an explicit 0 (e.g. a
+	// caller removing the default inset entirely) still marshals as
+	// lIns="0" instead of being indistinguishable from "never set" and
+	// silently dropped by omitempty — PowerPoint's own default insets are
+	// non-zero, so a dropped explicit 0 changes the rendered layout.
+	LIns        *int         `xml:"lIns,attr,omitempty"`   // left inset, EMUs
+	TIns        *int         `xml:"tIns,attr,omitempty"`   // top inset, EMUs
+	RIns        *int         `xml:"rIns,attr,omitempty"`   // right inset, EMUs
+	BIns        *int         `xml:"bIns,attr,omitempty"`   // bottom inset, EMUs
+	Anchor      string       `xml:"anchor,attr,omitempty"` // ST_TextAnchoringType: "t", "ctr", "b"
+	NoAutofit   *NoAutofit   `xml:"a:noAutofit,omitempty"`
+	NormAutofit *NormAutofit `xml:"a:normAutofit,omitempty"`
+	SpAutoFit   *SpAutoFit   `xml:"a:spAutoFit,omitempty"`
+}
+
+// NoAutofit is a:noAutofit (CT_TextNoAutofit): text may overflow the shape
+// uncorrected. Emitted empty — PowerPoint does not parameterize this choice.
+type NoAutofit struct {
+	XMLName xml.Name `xml:"a:noAutofit"`
+}
+
+// NormAutofit is a:normAutofit (CT_TextNormalAutofit): shrink font size
+// and/or line spacing to fit the text within the shape. Emitted empty — its
+// optional fontScale/lnSpcReduction attributes are the values PowerPoint
+// itself computes on reflow, not something a caller sets up front.
+type NormAutofit struct {
+	XMLName xml.Name `xml:"a:normAutofit"`
+}
+
+// SpAutoFit is a:spAutoFit (CT_TextShapeAutofit): resize the shape to fit
+// its text. Emitted empty; the schema defines no attributes for it.
+type SpAutoFit struct {
+	XMLName xml.Name `xml:"a:spAutoFit"`
 }
 
 // LstStyle is a:lstStyle: list-level style overrides. Emitted empty, per
@@ -91,11 +128,86 @@ type Paragraph struct {
 	Content []any    `xml:",any"`
 }
 
-// PPr is a:pPr (CT_TextParagraphProperties): paragraph properties. Only
-// alignment is modeled in Fase 2.
+// PPr is a:pPr (CT_TextParagraphProperties): paragraph properties. Field
+// order mirrors the schema: attributes (marL, lvl, indent, algn) first,
+// then the child sequence — LnSpc, SpcBef, SpcAft, then the bullet-typeface
+// group (BuFont) ahead of the mutually-exclusive bullet group (BuNone,
+// BuAutoNum, BuChar) — the validator rejects e.g. a:buChar emitted before
+// a:buFont. At most one of BuNone/BuAutoNum/BuChar should be set; the
+// Paragraph builder methods (NoBullet, NumberedBullet, Bullet) enforce that
+// by clearing the other two whenever one is set.
 type PPr struct {
 	XMLName xml.Name `xml:"a:pPr"`
-	Algn    string   `xml:"algn,attr,omitempty"`
+	// MarL/Indent are *int, not int, for the same reason BodyPr's insets
+	// are: an explicit 0 (e.g. overriding an inherited non-zero margin)
+	// must marshal as marL="0", not be dropped by omitempty as if it had
+	// never been set.
+	MarL *int `xml:"marL,attr,omitempty"` // left margin, EMUs
+	// Lvl is *int, not int, for the same reason MarL/Indent are: Level(0)
+	// must marshal as lvl="0" so an explicit call to reset the outline
+	// level is distinguishable from never having called Level at all.
+	Lvl       *int         `xml:"lvl,attr,omitempty"`    // outline level, 0-8
+	Indent    *int         `xml:"indent,attr,omitempty"` // first-line indent, EMUs; negative for hanging indent
+	Algn      string       `xml:"algn,attr,omitempty"`
+	LnSpc     *TextSpacing `xml:"a:lnSpc,omitempty"`
+	SpcBef    *TextSpacing `xml:"a:spcBef,omitempty"`
+	SpcAft    *TextSpacing `xml:"a:spcAft,omitempty"`
+	BuFont    *BuFont      `xml:"a:buFont,omitempty"`
+	BuNone    *BuNone      `xml:"a:buNone,omitempty"`
+	BuAutoNum *BuAutoNum   `xml:"a:buAutoNum,omitempty"`
+	BuChar    *BuChar      `xml:"a:buChar,omitempty"`
+}
+
+// TextSpacing is CT_TextSpacing: a spacing value expressed as either a
+// percentage of single spacing (SpcPct) or an absolute size in points
+// (SpcPts) — exactly one should be set. Reused for a:lnSpc, a:spcBef, and
+// a:spcAft; like TextBody, it has no XMLName of its own, so the host
+// struct's field tag supplies which of the three this instance is.
+type TextSpacing struct {
+	SpcPct *SpcPct `xml:"a:spcPct,omitempty"`
+	SpcPts *SpcPts `xml:"a:spcPts,omitempty"`
+}
+
+// SpcPct is a:spcPct (CT_TextSpacingPercent): a spacing value as a
+// percentage of single spacing, in thousandths of a percent (100000 = 100%).
+type SpcPct struct {
+	XMLName xml.Name `xml:"a:spcPct"`
+	Val     int      `xml:"val,attr"`
+}
+
+// SpcPts is a:spcPts (CT_TextSpacingPoint): a spacing value as an absolute
+// size, in hundredths of a point.
+type SpcPts struct {
+	XMLName xml.Name `xml:"a:spcPts"`
+	Val     int      `xml:"val,attr"`
+}
+
+// BuFont is a:buFont (CT_TextFont): the typeface a bullet glyph is drawn
+// in. Required alongside BuChar for symbol bullets — a "•" with no font
+// declared renders as a missing-glyph box in some viewers.
+type BuFont struct {
+	XMLName  xml.Name `xml:"a:buFont"`
+	Typeface string   `xml:"typeface,attr"`
+}
+
+// BuNone is a:buNone (CT_TextNoBullet): explicitly suppresses any bullet
+// for this paragraph, overriding one it would otherwise inherit.
+type BuNone struct {
+	XMLName xml.Name `xml:"a:buNone"`
+}
+
+// BuAutoNum is a:buAutoNum (CT_TextAutonumberBullet): an automatically
+// numbered bullet (e.g. "1.", "a)"), per the given ST_TextAutonumberScheme.
+type BuAutoNum struct {
+	XMLName xml.Name `xml:"a:buAutoNum"`
+	Type    string   `xml:"type,attr"`
+	StartAt int      `xml:"startAt,attr,omitempty"`
+}
+
+// BuChar is a:buChar (CT_TextCharBullet): an explicit bullet character.
+type BuChar struct {
+	XMLName xml.Name `xml:"a:buChar"`
+	Char    string   `xml:"char,attr"`
 }
 
 // Run is a:r (CT_RegularTextRun): a single run of uniformly-formatted text.
