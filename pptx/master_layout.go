@@ -170,7 +170,8 @@ func NewDefaultTxStyles() *TxStyles {
 	}
 }
 
-// XMLSlideLayout represents ppt/slideLayouts/slideLayout1.xml (p:sldLayout).
+// XMLSlideLayout represents one ppt/slideLayouts/slideLayoutN.xml part
+// (p:sldLayout) — see SlideLayoutPath and newStandardLayouts.
 type XMLSlideLayout struct {
 	XMLName   xml.Name   `xml:"p:sldLayout"`
 	XmlnsA    string     `xml:"xmlns:a,attr"`

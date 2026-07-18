@@ -148,38 +148,42 @@ func New(opts ...Option) *Presentation {
 	// Add the master's relationships first and thread the generated rIds
 	// into the XML, rather than restating "rId2" as a literal that silently
 	// depends on the exact order of these Add calls. The master body only
-	// references the layout by rId; the theme rel lives in the .rels but is
-	// not referenced from the body.
+	// references its layouts by rId; the theme rel lives in the .rels but
+	// is not referenced from the body.
 	masterRels := pkg.Relationships(PathSlideMaster1)
 	if _, err := masterRels.Add(opc.RelTypeTheme, "../theme/theme1.xml", "Internal"); err != nil {
 		panic(err) // static, well-formed arguments; cannot fail
 	}
-	layoutRID, err := masterRels.Add(RelTypeSlideLayout, "../slideLayouts/slideLayout1.xml", "Internal")
-	if err != nil {
-		panic(err)
+
+	layouts := newStandardLayouts(cfg.slideWidthEMU, cfg.slideHeightEMU)
+	sldLayoutIdLst := &SldLayoutIdLst{Entries: make([]*SldLayoutId, 0, len(layouts))}
+	for i := range layouts {
+		layoutRID, err := masterRels.Add(RelTypeSlideLayout, "../slideLayouts/slideLayout"+strconv.Itoa(i+1)+".xml", "Internal")
+		if err != nil {
+			panic(err)
+		}
+		sldLayoutIdLst.Entries = append(sldLayoutIdLst.Entries, &SldLayoutId{
+			ID:  firstSldLayoutID + uint32(i),
+			RID: layoutRID,
+		})
 	}
+
 	pkg.AddPart(PathSlideMaster1, ContentTypeSlideMaster, &XMLSlideMaster{
-		XmlnsA: drawingml.NamespaceMain,
-		XmlnsR: drawingml.NamespaceRelationships,
-		XmlnsP: NamespaceMain,
-		CSld:   &CSld{SpTree: newMasterSpTree(cfg.slideWidthEMU, cfg.slideHeightEMU)},
-		ClrMap: NewDefaultClrMap(),
-		SldLayoutIdLst: &SldLayoutIdLst{
-			Entries: []*SldLayoutId{{ID: firstSldLayoutID, RID: layoutRID}},
-		},
-		TxStyles: NewDefaultTxStyles(),
+		XmlnsA:         drawingml.NamespaceMain,
+		XmlnsR:         drawingml.NamespaceRelationships,
+		XmlnsP:         NamespaceMain,
+		CSld:           &CSld{SpTree: newMasterSpTree(cfg.slideWidthEMU, cfg.slideHeightEMU)},
+		ClrMap:         NewDefaultClrMap(),
+		SldLayoutIdLst: sldLayoutIdLst,
+		TxStyles:       NewDefaultTxStyles(),
 	})
 
-	pkg.AddPart(PathSlideLayout1, ContentTypeSlideLayout, &XMLSlideLayout{
-		XmlnsA:    drawingml.NamespaceMain,
-		XmlnsR:    drawingml.NamespaceRelationships,
-		XmlnsP:    NamespaceMain,
-		Type:      "blank",
-		CSld:      &CSld{SpTree: NewEmptySpTree()},
-		ClrMapOvr: NewClrMapOvrInherit(),
-	})
-	if _, err := pkg.Relationships(PathSlideLayout1).Add(RelTypeSlideMaster, "../slideMasters/slideMaster1.xml", "Internal"); err != nil {
-		panic(err)
+	for i, layout := range layouts {
+		path := SlideLayoutPath(i + 1)
+		pkg.AddPart(path, ContentTypeSlideLayout, layout.xml)
+		if _, err := pkg.Relationships(path).Add(RelTypeSlideMaster, "../slideMasters/slideMaster1.xml", "Internal"); err != nil {
+			panic(err)
+		}
 	}
 
 	// Same pattern: add the presentation's relationships and reference the
