@@ -43,8 +43,24 @@ const firstShapeID = 2
 type Slide struct {
 	pres        *Presentation
 	path        string // this slide's own part path, e.g. "ppt/slides/slide1.xml" — needed to own its media relationships
+	cSld        *CSld  // the slide's own p:cSld, so Background can set its Bg field after construction
 	spTree      *SpTree
 	nextShapeID uint32
+}
+
+// Background sets the slide's own background to a solid color, overriding
+// whatever its layout/master would otherwise supply.
+func (s *Slide) Background(c drawingml.Color) *Slide {
+	s.cSld.Bg = &Bg{BgPr: &BgPr{Fill: drawingml.NewSolidFillRGB(c)}}
+	return s
+}
+
+// BackgroundScheme sets the slide's own background to a theme color,
+// referenced by scheme slot (e.g. SchemeAccent1) rather than an explicit
+// RGB value.
+func (s *Slide) BackgroundScheme(scheme SchemeColor) *Slide {
+	s.cSld.Bg = &Bg{BgPr: &BgPr{Fill: drawingml.NewSolidFillScheme(string(scheme))}}
+	return s
 }
 
 // AddTextBox adds a text-box shape at the given position and size (x, y, w,

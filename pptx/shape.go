@@ -53,12 +53,16 @@ type NvSpPr struct {
 // properties. A free text box needs an explicit a:xfrm — without one it has
 // no position on the slide. Field order mirrors the schema:
 // xfrm -> prstGeom -> (fill group) -> ln. This same struct is reused as-is
-// for a p:pic's p:spPr (Fill stays nil there — a picture's fill is its
-// blipFill, not a:solidFill).
+// for a p:pic's p:spPr (Fill and NoFill both stay nil there — a picture's
+// fill is its blipFill, not a:solidFill/a:noFill). Fill and NoFill are the
+// schema's EG_FillProperties choice: at most one should ever be set — the
+// ShapeRef builder methods (Fill, FillScheme, NoFill) enforce that by
+// clearing the other whenever one is set.
 type SpPr struct {
 	XMLName  xml.Name             `xml:"p:spPr"`
 	Xfrm     *drawingml.Xfrm      `xml:"a:xfrm,omitempty"`
 	PrstGeom *drawingml.PrstGeom  `xml:"a:prstGeom,omitempty"`
 	Fill     *drawingml.SolidFill `xml:"a:solidFill,omitempty"`
+	NoFill   *drawingml.NoFill    `xml:"a:noFill,omitempty"`
 	Ln       *drawingml.Ln        `xml:"a:ln,omitempty"`
 }
