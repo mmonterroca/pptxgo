@@ -129,6 +129,24 @@ const (
 	AutofitResizeShape AutofitMode = "shape" // grow the shape to fit the text
 )
 
+// PlaceholderType names a placeholder's role (p:ph's type attribute,
+// ST_PlaceholderType) — which same-typed, same-idx placeholder in a
+// layout, and from there its master, a placeholder that omits its own
+// position/formatting inherits from. Not exhaustive of ST_PlaceholderType's
+// full set (which also names notes/date/footer/slide-number placeholders,
+// among others) — these are the ones pptxgo's own master and standard
+// layouts use.
+type PlaceholderType string
+
+// Placeholder types.
+const (
+	PlaceholderTitle    PlaceholderType = "title"    // main slide title
+	PlaceholderCtrTitle PlaceholderType = "ctrTitle" // centered title (title-slide layout)
+	PlaceholderSubTitle PlaceholderType = "subTitle" // subtitle (title-slide layout)
+	PlaceholderBody     PlaceholderType = "body"     // bulleted body text
+	PlaceholderObj      PlaceholderType = "obj"      // generic content placeholder
+)
+
 // PresetGeometry names a preset autoshape outline (a:prstGeom's prst
 // attribute, schema type ST_ShapeType) for use with Slide.AddShape. This is
 // a representative subset of the ~180 shapes ST_ShapeType allows; any other

@@ -162,7 +162,7 @@ func New(opts ...Option) *Presentation {
 		XmlnsA: drawingml.NamespaceMain,
 		XmlnsR: drawingml.NamespaceRelationships,
 		XmlnsP: NamespaceMain,
-		CSld:   &CSld{SpTree: NewEmptySpTree()},
+		CSld:   &CSld{SpTree: newMasterSpTree(cfg.slideWidthEMU, cfg.slideHeightEMU)},
 		ClrMap: NewDefaultClrMap(),
 		SldLayoutIdLst: &SldLayoutIdLst{
 			Entries: []*SldLayoutId{{ID: firstSldLayoutID, RID: layoutRID}},

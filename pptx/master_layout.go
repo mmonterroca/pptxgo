@@ -24,7 +24,11 @@ SOFTWARE.
 
 package pptx
 
-import "encoding/xml"
+import (
+	"encoding/xml"
+
+	"github.com/mmonterroca/pptxgo/drawingml"
+)
 
 // XMLSlideMaster represents ppt/slideMasters/slideMaster1.xml (p:sldMaster).
 //
@@ -112,10 +116,22 @@ type TextStyle struct {
 }
 
 // Lvl1PPr is a:lvl1pPr: the first (and, here, only) indentation level's
-// paragraph properties, holding the default run properties for that level.
+// paragraph properties — the same content model as drawingml.PPr (both are
+// CT_TextParagraphProperties), but modeled as its own type: PPr's own
+// fixed XMLName ("a:pPr") would win over TxStyles' "a:lvl1pPr" field tag if
+// embedded directly, the same reuse trap Xfrm/GraphicFrameXfrm document,
+// and unlike a:pPr this element also carries a trailing a:defRPr with the
+// level's default run properties. Field order mirrors the schema: MarL/
+// Indent attrs, then BuFont ahead of the mutually-exclusive bullet group
+// (BuNone/BuChar), then DefRPr last.
 type Lvl1PPr struct {
-	XMLName xml.Name `xml:"a:lvl1pPr"`
-	DefRPr  *DefRPr  `xml:"a:defRPr"`
+	XMLName xml.Name          `xml:"a:lvl1pPr"`
+	MarL    *int              `xml:"marL,attr,omitempty"`
+	Indent  *int              `xml:"indent,attr,omitempty"`
+	BuFont  *drawingml.BuFont `xml:"a:buFont,omitempty"`
+	BuNone  *drawingml.BuNone `xml:"a:buNone,omitempty"`
+	BuChar  *drawingml.BuChar `xml:"a:buChar,omitempty"`
+	DefRPr  *DefRPr           `xml:"a:defRPr"`
 }
 
 // DefRPr is a:defRPr: default run (character) properties for a paragraph level.
@@ -124,12 +140,32 @@ type DefRPr struct {
 	Sz      int      `xml:"sz,attr,omitempty"` // hundredths of a point
 }
 
+// bodyBulletMarL and bodyBulletIndent are the conventional level-1 hanging
+// indent for a bulleted body placeholder, in EMUs (0.375in each): the
+// bullet glyph sits at MarL+Indent (0) and wrapped text at MarL.
+const (
+	bodyBulletMarL   = 342900
+	bodyBulletIndent = -342900
+)
+
 // NewDefaultTxStyles returns a minimal title/body/other text style set with
-// conventional default sizes (44pt title, 32pt body, 18pt other).
+// conventional default sizes (44pt title, 32pt body, 18pt other). The body
+// style also carries a level-1 bullet default (a round "•" in Arial) so a
+// body placeholder's paragraphs pick up a bullet automatically unless they
+// set their own (Paragraph.Bullet/NumberedBullet) or explicitly suppress it
+// (Paragraph.NoBullet) — pptxgo's txBody always emits its own a:lstStyle
+// empty, so nothing on the placeholder itself overrides this cascade.
 func NewDefaultTxStyles() *TxStyles {
+	marL, indent := bodyBulletMarL, bodyBulletIndent
 	return &TxStyles{
 		TitleStyle: &TextStyle{Lvl1PPr: &Lvl1PPr{DefRPr: &DefRPr{Sz: 4400}}},
-		BodyStyle:  &TextStyle{Lvl1PPr: &Lvl1PPr{DefRPr: &DefRPr{Sz: 3200}}},
+		BodyStyle: &TextStyle{Lvl1PPr: &Lvl1PPr{
+			MarL:   &marL,
+			Indent: &indent,
+			BuFont: &drawingml.BuFont{Typeface: "Arial"},
+			BuChar: &drawingml.BuChar{Char: "•"},
+			DefRPr: &DefRPr{Sz: 3200},
+		}},
 		OtherStyle: &TextStyle{Lvl1PPr: &Lvl1PPr{DefRPr: &DefRPr{Sz: 1800}}},
 	}
 }
