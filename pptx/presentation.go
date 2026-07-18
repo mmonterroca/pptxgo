@@ -66,12 +66,13 @@ const (
 // presentation needs regardless of slide count — plus whatever slides
 // AddSlide adds. New() starts with zero slides.
 type Presentation struct {
-	pkg         *opc.Package
-	pres        *XMLPresentation
-	presRels    *opc.RelationshipManager
-	slideCount  int
-	errs        []error
-	mediaByHash map[[sha256.Size]byte]string // content hash -> already-embedded media part's ppt/media/ basename; see mediaBasename
+	pkg               *opc.Package
+	pres              *XMLPresentation
+	presRels          *opc.RelationshipManager
+	slideCount        int
+	errs              []error
+	mediaByHash       map[[sha256.Size]byte]string // content hash -> already-embedded media part's ppt/media/ basename; see mediaBasename
+	layoutIndexByType map[LayoutType]int           // LayoutType -> its 1-indexed slideLayoutN.xml part, for AddSlide's WithLayout
 }
 
 // Option configures a Presentation at construction time, for use with New.
@@ -157,8 +158,9 @@ func New(opts ...Option) *Presentation {
 
 	layouts := newStandardLayouts(cfg.slideWidthEMU, cfg.slideHeightEMU)
 	sldLayoutIdLst := &SldLayoutIdLst{}
-	for i := range layouts {
-		layoutRID, err := masterRels.Add(RelTypeSlideLayout, "../slideLayouts/slideLayout"+strconv.Itoa(i+1)+".xml", "Internal")
+	layoutIndexByType := make(map[LayoutType]int, len(layouts))
+	for i, layout := range layouts {
+		layoutRID, err := masterRels.Add(RelTypeSlideLayout, slideLayoutRelTarget(i+1), "Internal")
 		if err != nil {
 			panic(err)
 		}
@@ -166,6 +168,7 @@ func New(opts ...Option) *Presentation {
 			ID:  firstSldLayoutID + uint32(i),
 			RID: layoutRID,
 		})
+		layoutIndexByType[layout.layoutType] = i + 1
 	}
 
 	pkg.AddPart(PathSlideMaster1, ContentTypeSlideMaster, &XMLSlideMaster{
@@ -226,14 +229,45 @@ func New(opts ...Option) *Presentation {
 		panic(err)
 	}
 
-	p := &Presentation{pkg: pkg, pres: pres, presRels: presRels}
+	p := &Presentation{pkg: pkg, pres: pres, presRels: presRels, layoutIndexByType: layoutIndexByType}
 	p.addErr(cfg.err)
 	return p
 }
 
-// AddSlide appends a new, empty slide — using the presentation's one slide
-// layout — and returns a handle for adding shapes to it.
-func (p *Presentation) AddSlide() *Slide {
+// SlideOption configures a single slide at AddSlide time.
+type SlideOption func(*slideConfig)
+
+// slideConfig collects SlideOption values before AddSlide builds anything.
+type slideConfig struct {
+	layout LayoutType
+}
+
+// WithLayout selects which of the presentation's standard layouts (see
+// LayoutType) the new slide uses — e.g. LayoutTitleAndContent for a slide
+// with a title and one body placeholder to fill via AddPlaceholder/Title/
+// Body. Omitting it (AddSlide with no options) keeps pptxgo's original
+// default, LayoutBlank, so every existing AddSlide() call is unaffected.
+func WithLayout(layout LayoutType) SlideOption {
+	return func(c *slideConfig) { c.layout = layout }
+}
+
+// AddSlide appends a new, empty slide and returns a handle for adding
+// shapes and placeholders to it. With no options it uses LayoutBlank, the
+// presentation's original single layout; pass WithLayout to pick one of
+// the others (see LayoutType).
+func (p *Presentation) AddSlide(opts ...SlideOption) *Slide {
+	cfg := &slideConfig{layout: LayoutBlank}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	layoutIdx, ok := p.layoutIndexByType[cfg.layout]
+	if !ok {
+		p.addErr(errors.InvalidArgument("AddSlide", "layout", string(cfg.layout),
+			"must be one of the presentation's registered layouts (see LayoutType)"))
+		layoutIdx = p.layoutIndexByType[LayoutBlank] // fall back so construction stays well-formed
+	}
+
 	p.slideCount++
 	n := p.slideCount
 	path := SlidePath(n)
@@ -247,7 +281,7 @@ func (p *Presentation) AddSlide() *Slide {
 		CSld:      cSld,
 		ClrMapOvr: NewClrMapOvrInherit(),
 	})
-	if _, err := p.pkg.Relationships(path).Add(RelTypeSlideLayout, "../slideLayouts/slideLayout1.xml", "Internal"); err != nil {
+	if _, err := p.pkg.Relationships(path).Add(RelTypeSlideLayout, slideLayoutRelTarget(layoutIdx), "Internal"); err != nil {
 		panic(err) // static, well-formed arguments; cannot fail
 	}
 

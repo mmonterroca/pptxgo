@@ -56,6 +56,16 @@ func SlideLayoutPath(n int) string {
 	return "ppt/slideLayouts/slideLayout" + strconv.Itoa(n) + ".xml"
 }
 
+// slideLayoutRelTarget returns the nth slide layout's path as a
+// relationship target relative to another ppt/ subdirectory's own part
+// (e.g. ppt/slideMasters/slideMaster1.xml or ppt/slides/slideN.xml) — the
+// form both New (the master's own layout rels) and AddSlide (a slide's
+// layout rel) need, as opposed to SlideLayoutPath's package-root-relative
+// form used for registering the part itself.
+func slideLayoutRelTarget(n int) string {
+	return "../slideLayouts/slideLayout" + strconv.Itoa(n) + ".xml"
+}
+
 // Content types specific to PresentationML.
 const (
 	ContentTypePresentation = "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"

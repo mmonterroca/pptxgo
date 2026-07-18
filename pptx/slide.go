@@ -124,6 +124,45 @@ func (s *Slide) addShape(prst PresetGeometry, x, y, w, h int, isTextBox bool) *S
 	return &ShapeRef{pres: s.pres, slidePath: s.path, body: body, spPr: spPr}
 }
 
+// AddPlaceholder adds a placeholder shape of the given type and index (see
+// PlaceholderType; idx distinguishes multiple placeholders of the same
+// type, e.g. a Two Content layout's second body — pass 0 for a type that
+// only ever appears once, like title) and returns a handle for adding
+// text. Unlike AddShape/AddTextBox, the returned shape has no a:xfrm of
+// its own: a placeholder inherits its position and size from the
+// same-typed, same-idx placeholder in the slide's own layout (and, from
+// there, the master) — see WithLayout. Pairing a placeholder type/idx that
+// the slide's layout doesn't declare still produces schema-valid XML, but
+// PowerPoint has nothing to inherit position from and places it
+// arbitrarily; Title and Body cover the common case of a type/idx a
+// standard layout does declare.
+func (s *Slide) AddPlaceholder(phType PlaceholderType, idx int) *ShapeRef {
+	id := s.nextShapeID
+	s.nextShapeID++
+
+	shape := newPlaceholderShape(id, fmt.Sprintf("Placeholder %d", id), phType, idx, nil)
+	s.spTree.Content = append(s.spTree.Content, shape)
+
+	return &ShapeRef{pres: s.pres, slidePath: s.path, body: shape.TxBody, spPr: shape.SpPr}
+}
+
+// Title adds a title placeholder (type="title", the schema's default
+// idx=0) with the given text and returns a handle for further formatting
+// — a convenience shorthand for AddPlaceholder(PlaceholderTitle,
+// 0).AddParagraph().Text(text).
+func (s *Slide) Title(text string) *Paragraph {
+	return s.AddPlaceholder(PlaceholderTitle, 0).AddParagraph().Text(text)
+}
+
+// Body adds a body placeholder (type="body", idx=1 — matching the
+// master's own body placeholder, so it inherits both geometry and the
+// bulleted-list default from TxStyles.bodyStyle) with the given text.
+// For a layout with more than one body placeholder (e.g. LayoutTwoContent),
+// use AddPlaceholder(PlaceholderBody, idx) directly to pick idx 1 or 2.
+func (s *Slide) Body(text string) *Paragraph {
+	return s.AddPlaceholder(PlaceholderBody, 1).AddParagraph().Text(text)
+}
+
 // AddImage adds an image at (x, y), both in EMUs, auto-sized from the
 // image's own pixel dimensions at 96 DPI. Format (PNG, JPEG, or GIF) is
 // auto-detected. For exact sizing use AddImageWithSize.
