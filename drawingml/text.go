@@ -72,12 +72,17 @@ func (b *TextBody) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 // emitted, so there is nothing to order it against. The zero value marshals
 // as the minimal valid <a:bodyPr/>.
 type BodyPr struct {
-	XMLName     xml.Name     `xml:"a:bodyPr"`
-	Wrap        string       `xml:"wrap,attr,omitempty"`   // ST_TextWrappingType: "none" or "square"
-	LIns        int          `xml:"lIns,attr,omitempty"`   // left inset, EMUs
-	TIns        int          `xml:"tIns,attr,omitempty"`   // top inset, EMUs
-	RIns        int          `xml:"rIns,attr,omitempty"`   // right inset, EMUs
-	BIns        int          `xml:"bIns,attr,omitempty"`   // bottom inset, EMUs
+	XMLName xml.Name `xml:"a:bodyPr"`
+	Wrap    string   `xml:"wrap,attr,omitempty"` // ST_TextWrappingType: "none" or "square"
+	// LIns/TIns/RIns/BIns are *int, not int, so an explicit 0 (e.g. a
+	// caller removing the default inset entirely) still marshals as
+	// lIns="0" instead of being indistinguishable from "never set" and
+	// silently dropped by omitempty — PowerPoint's own default insets are
+	// non-zero, so a dropped explicit 0 changes the rendered layout.
+	LIns        *int         `xml:"lIns,attr,omitempty"`   // left inset, EMUs
+	TIns        *int         `xml:"tIns,attr,omitempty"`   // top inset, EMUs
+	RIns        *int         `xml:"rIns,attr,omitempty"`   // right inset, EMUs
+	BIns        *int         `xml:"bIns,attr,omitempty"`   // bottom inset, EMUs
 	Anchor      string       `xml:"anchor,attr,omitempty"` // ST_TextAnchoringType: "t", "ctr", "b"
 	NoAutofit   *NoAutofit   `xml:"a:noAutofit,omitempty"`
 	NormAutofit *NormAutofit `xml:"a:normAutofit,omitempty"`
@@ -132,10 +137,14 @@ type Paragraph struct {
 // Paragraph builder methods (NoBullet, NumberedBullet, Bullet) enforce that
 // by clearing the other two whenever one is set.
 type PPr struct {
-	XMLName   xml.Name     `xml:"a:pPr"`
-	MarL      int          `xml:"marL,attr,omitempty"`   // left margin, EMUs
+	XMLName xml.Name `xml:"a:pPr"`
+	// MarL/Indent are *int, not int, for the same reason BodyPr's insets
+	// are: an explicit 0 (e.g. overriding an inherited non-zero margin)
+	// must marshal as marL="0", not be dropped by omitempty as if it had
+	// never been set.
+	MarL      *int         `xml:"marL,attr,omitempty"`   // left margin, EMUs
 	Lvl       int          `xml:"lvl,attr,omitempty"`    // outline level, 0-8
-	Indent    int          `xml:"indent,attr,omitempty"` // first-line indent, EMUs; negative for hanging indent
+	Indent    *int         `xml:"indent,attr,omitempty"` // first-line indent, EMUs; negative for hanging indent
 	Algn      string       `xml:"algn,attr,omitempty"`
 	LnSpc     *TextSpacing `xml:"a:lnSpc,omitempty"`
 	SpcBef    *TextSpacing `xml:"a:spcBef,omitempty"`

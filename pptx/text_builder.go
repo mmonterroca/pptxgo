@@ -94,12 +94,24 @@ func (sr *ShapeRef) BorderScheme(scheme SchemeColor, widthPoints float64) *Shape
 	return sr
 }
 
-// Rotation sets the shape's rotation, in degrees clockwise (e.g. 45, -90).
-// AddShape and AddTextBox always give a shape its own a:xfrm, so this is
-// never a no-op in practice.
+// Rotation sets the shape's rotation, in degrees clockwise (e.g. 45, -90;
+// any value works, including beyond a full turn — 405 is the same
+// rotation as 45). AddShape and AddTextBox always give a shape its own
+// a:xfrm, so this is never a no-op in practice.
 func (sr *ShapeRef) Rotation(degrees float64) *ShapeRef {
+	if math.IsNaN(degrees) || math.IsInf(degrees, 0) {
+		sr.pres.addErr(errors.InvalidArgument("Rotation", "degrees", degrees, "must be a finite number"))
+		return sr
+	}
 	if sr.spPr.Xfrm != nil {
-		sr.spPr.Xfrm.Rot = int(math.Round(degrees * 60000))
+		// Normalize to (-360, 360) before converting to 60,000ths of a
+		// degree (a:xfrm/@rot): rotation is inherently modular (405
+		// degrees looks identical to 45), so this changes nothing
+		// visually, but an un-normalized large input — Rotation(36000),
+		// say — would multiply out to a value ST_Angle's underlying
+		// xsd:int (32-bit signed) can't hold, corrupting the file
+		// silently since Save has no other way to detect it.
+		sr.spPr.Xfrm.Rot = int(math.Round(math.Mod(degrees, 360) * 60000))
 	}
 	return sr
 }
@@ -140,11 +152,21 @@ func (sr *ShapeRef) Anchor(a VerticalAnchor) *ShapeRef {
 // Insets sets the text body's internal margins (the gap between the
 // shape's outline and its text), all in points.
 func (sr *ShapeRef) Insets(left, top, right, bottom float64) *ShapeRef {
-	sr.body.BodyPr.LIns = int(left * drawingml.EMUsPerPoint)
-	sr.body.BodyPr.TIns = int(top * drawingml.EMUsPerPoint)
-	sr.body.BodyPr.RIns = int(right * drawingml.EMUsPerPoint)
-	sr.body.BodyPr.BIns = int(bottom * drawingml.EMUsPerPoint)
+	sr.body.BodyPr.LIns = emuPtr(left)
+	sr.body.BodyPr.TIns = emuPtr(top)
+	sr.body.BodyPr.RIns = emuPtr(right)
+	sr.body.BodyPr.BIns = emuPtr(bottom)
 	return sr
+}
+
+// emuPtr converts points to EMUs, rounding to the nearest whole EMU, and
+// returns a pointer to the result. BodyPr's insets and PPr's marL/indent
+// are *int specifically so an explicit zero (e.g. Insets(0, 0, 0, 0))
+// marshals as e.g. lIns="0" instead of being indistinguishable from
+// "never set" and dropped by omitempty.
+func emuPtr(points float64) *int {
+	v := int(math.Round(points * drawingml.EMUsPerPoint))
+	return &v
 }
 
 // Autofit sets how the shape's text behaves when it overflows the shape's
@@ -321,8 +343,15 @@ func (pg *Paragraph) pPr() *drawingml.PPr {
 }
 
 // Level sets the paragraph's outline level (0-8, PowerPoint's UI levels
-// 1-9), which controls indent and bullet inheritance from the list style.
+// 1-9, matching ST_TextIndentLevelType's range), which controls indent
+// and bullet inheritance from the list style. A value outside 0-8 is
+// recorded as an error on the presentation (returned by Save) and leaves
+// the level unset.
 func (pg *Paragraph) Level(lvl int) *Paragraph {
+	if lvl < 0 || lvl > 8 {
+		pg.pres.addErr(errors.InvalidArgument("Paragraph.Level", "lvl", lvl, "must be between 0 and 8"))
+		return pg
+	}
 	pg.pPr().Lvl = lvl
 	return pg
 }
@@ -331,8 +360,8 @@ func (pg *Paragraph) Level(lvl int) *Paragraph {
 // points. A negative firstLine produces a hanging indent — the common
 // bulleted-text layout where the bullet sits to the left of wrapped text.
 func (pg *Paragraph) Indent(marginLeft, firstLine float64) *Paragraph {
-	pg.pPr().MarL = int(marginLeft * drawingml.EMUsPerPoint)
-	pg.pPr().Indent = int(firstLine * drawingml.EMUsPerPoint)
+	pg.pPr().MarL = emuPtr(marginLeft)
+	pg.pPr().Indent = emuPtr(firstLine)
 	return pg
 }
 

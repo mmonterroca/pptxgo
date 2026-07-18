@@ -72,10 +72,18 @@ func (s *Slide) AddTextBox(x, y, w, h int) *TextBox {
 }
 
 // AddShape adds an autoshape with the given preset geometry (see the Shape*
-// constants, e.g. ShapeEllipse) at the given position and size (x, y, w, h,
-// all in EMUs — see the Inches/Points helpers), and returns a handle for
-// adding text content and setting fill/border/rotation/flip.
+// constants, e.g. ShapeEllipse — any of ST_ShapeType's 187 names is
+// accepted, not only those with a named constant) at the given position
+// and size (x, y, w, h, all in EMUs — see the Inches/Points helpers), and
+// returns a handle for adding text content and setting fill/border/
+// rotation/flip. A name outside ST_ShapeType is recorded as an error on
+// the presentation (returned by Save), since a:prstGeom/@prst with an
+// unrecognized value is a file PowerPoint refuses to open.
 func (s *Slide) AddShape(prst PresetGeometry, x, y, w, h int) *ShapeRef {
+	if !IsValidPresetGeometry(prst) {
+		s.pres.addErr(errors.InvalidArgument("AddShape", "prst", string(prst),
+			"must be a valid ST_ShapeType preset geometry name (e.g. \"rect\", \"ellipse\")"))
+	}
 	return s.addShape(prst, x, y, w, h, false)
 }
 

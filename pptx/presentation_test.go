@@ -29,6 +29,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"image/png"
+	"math"
 	"os"
 	"regexp"
 	"strings"
@@ -440,6 +441,81 @@ func TestShapeRef_NegativeRotationIsPreserved(t *testing.T) {
 	}
 }
 
+func TestShapeRef_RotationNormalizesBeyondFullTurn(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	// 36000 degrees * 60,000 = 2,160,000,000, which overflows ST_Angle's
+	// underlying 32-bit signed int (max 2,147,483,647) if emitted
+	// un-normalized. 36000 mod 360 = 0, so this must normalize to rot="0"
+	// (or simply omit the attribute, since 0 is Xfrm.Rot's zero value).
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).Rotation(36000)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if strings.Contains(slide, `rot="2160000000"`) {
+		t.Fatalf("expected rotation to be normalized mod 360, not overflow ST_Angle, got %s", slide)
+	}
+	if err := p.Save(&bytes.Buffer{}); err != nil {
+		t.Fatalf("expected no error for a large-but-finite rotation, got %v", err)
+	}
+}
+
+func TestShapeRef_RotationBeyondOneTurnMatchesEquivalentAngle(t *testing.T) {
+	p1 := New()
+	s1 := p1.AddSlide()
+	s1.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).Rotation(405)
+	files1 := generateFrom(t, p1)
+
+	p2 := New()
+	s2 := p2.AddSlide()
+	s2.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).Rotation(45)
+	files2 := generateFrom(t, p2)
+
+	// 405 degrees is the same rotation as 45 degrees (405 - 360 = 45).
+	slide1 := string(files1["ppt/slides/slide1.xml"])
+	slide2 := string(files2["ppt/slides/slide1.xml"])
+	if slide1 != slide2 {
+		t.Errorf("expected Rotation(405) to normalize identically to Rotation(45):\n405: %s\n45: %s", slide1, slide2)
+	}
+}
+
+func TestShapeRef_RotationNaNAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).Rotation(math.NaN())
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated NaN-rotation error")
+	}
+}
+
+func TestAddShape_InvalidPresetGeometryAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(PresetGeometry("rectangel"), Inches(1), Inches(1), Inches(2), Inches(2))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated invalid-preset-geometry error")
+	}
+}
+
+func TestAddShape_EveryDocumentedShapeConstantIsValid(t *testing.T) {
+	for _, prst := range []PresetGeometry{
+		ShapeRect, ShapeRoundRect, ShapeEllipse, ShapeTriangle, ShapeRightTriangle,
+		ShapeParallelogram, ShapeTrapezoid, ShapeDiamond, ShapePentagon, ShapeHexagon,
+		ShapeHeptagon, ShapeOctagon, ShapeStar4, ShapeStar5, ShapeStar6, ShapeStar8,
+		ShapeRightArrow, ShapeLeftArrow, ShapeUpArrow, ShapeDownArrow, ShapeLeftRightArrow,
+		ShapeUpDownArrow, ShapeChevron, ShapeDonut, ShapeNoSmoking, ShapeHeart,
+		ShapeLightningBolt, ShapeSun, ShapeMoon, ShapeCloud, ShapeArc, ShapePlaque,
+		ShapeCan, ShapeCube, ShapeBevel, ShapeSmileyFace, ShapeWave, ShapeDoubleWave,
+	} {
+		if !IsValidPresetGeometry(prst) {
+			t.Errorf("expected %q (a documented Shape* constant) to be a valid ST_ShapeType", prst)
+		}
+	}
+}
+
 func TestShapeRef_FlipHAndFlipVSetXfrmAttrs(t *testing.T) {
 	p := New()
 	s := p.AddSlide()
@@ -683,6 +759,98 @@ func TestSlide_NoBackgroundOmitsBgElement(t *testing.T) {
 
 	if strings.Contains(slide, "<p:bg>") {
 		t.Errorf("expected no p:bg when Background is never called, got %s", slide)
+	}
+}
+
+func TestShapeRef_InsetsExplicitZeroIsNotDroppedByOmitempty(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2)).Insets(0, 0, 0, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	for _, want := range []string{`lIns="0"`, `tIns="0"`, `rIns="0"`, `bIns="0"`} {
+		if !strings.Contains(slide, want) {
+			t.Errorf("expected explicit zero inset %s to marshal (not be dropped as unset), got %s", want, slide)
+		}
+	}
+}
+
+func TestShapeRef_InsetsRoundsRatherThanTruncates(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	// 2.3pt * 12700 EMU/pt = 29209.999999999996 in float64 — direct int()
+	// truncates to 29209, but the correct rounded EMU value is 29210.
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2)).Insets(2.3, 0, 0, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `lIns="29210"`) {
+		t.Errorf("expected lIns=\"29210\" (rounded, not truncated to 29209), got %s", slide)
+	}
+}
+
+func TestParagraph_IndentExplicitZeroIsNotDroppedByOmitempty(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("no indent").Indent(0, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `marL="0"`) || !strings.Contains(slide, `indent="0"`) {
+		t.Errorf("expected marL=\"0\" and indent=\"0\" to marshal (not be dropped as unset), got %s", slide)
+	}
+}
+
+func TestParagraph_IndentRoundsRatherThanTruncates(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("x").Indent(2.3, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `marL="29210"`) {
+		t.Errorf("expected marL=\"29210\" (rounded, not truncated to 29209), got %s", slide)
+	}
+}
+
+func TestParagraph_LevelOutOfRangeAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("x").Level(9)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated out-of-range Level error")
+	}
+}
+
+func TestParagraph_LevelNegativeAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("x").Level(-1)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated negative-Level error")
+	}
+}
+
+func TestParagraph_LevelBoundaryValuesDoNotError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("a").Level(0)
+	tb.AddParagraph().Text("b").Level(8)
+
+	if err := p.Save(&bytes.Buffer{}); err != nil {
+		t.Fatalf("expected no error for boundary-valid levels 0 and 8, got %v", err)
 	}
 }
 
