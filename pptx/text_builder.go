@@ -32,36 +32,79 @@ import (
 	"github.com/mmonterroca/pptxgo/pkg/errors"
 )
 
-// TextBox is a handle onto a text-box shape, returned by Slide.AddTextBox.
-// AddParagraph adds text content; Fill and Border set the shape's own
-// background and outline.
-type TextBox struct {
+// ShapeRef is a handle onto any p:sp shape on a slide — a text box
+// (Slide.AddTextBox) or an arbitrary autoshape (Slide.AddShape). AddParagraph
+// adds text content; Fill and Border set the shape's own background and
+// outline; Rotation, FlipH, and FlipV set its transform. TextBox is an alias:
+// a text box is simply a ShapeRef whose geometry defaults to rect.
+type ShapeRef struct {
 	pres *Presentation
 	body *drawingml.TextBody
 	spPr *SpPr
 }
 
-// AddParagraph appends a new, empty paragraph to the text box and returns a
+// TextBox is a handle onto a text-box shape, returned by Slide.AddTextBox.
+type TextBox = ShapeRef
+
+// AddParagraph appends a new, empty paragraph to the shape and returns a
 // handle for adding runs and formatting to it.
-func (tb *TextBox) AddParagraph() *Paragraph {
+func (sr *ShapeRef) AddParagraph() *Paragraph {
 	p := &drawingml.Paragraph{}
-	tb.body.Paragraphs = append(tb.body.Paragraphs, p)
-	return &Paragraph{pres: tb.pres, p: p}
+	sr.body.Paragraphs = append(sr.body.Paragraphs, p)
+	return &Paragraph{pres: sr.pres, p: p}
 }
 
-// Fill sets the text box's background to a solid color.
-func (tb *TextBox) Fill(c drawingml.Color) *TextBox {
-	tb.spPr.Fill = drawingml.NewSolidFillRGB(c)
-	return tb
+// Fill sets the shape's background to a solid color.
+func (sr *ShapeRef) Fill(c drawingml.Color) *ShapeRef {
+	sr.spPr.Fill = drawingml.NewSolidFillRGB(c)
+	return sr
 }
 
-// Border sets the text box's outline to a solid color at the given width,
+// Border sets the shape's outline to a solid color at the given width,
 // in points (e.g. 0.75, 1.5; 0-1584, matching ST_LineWidth's 0-20,116,800
 // EMU range). An out-of-range width is recorded as an error on the
 // presentation (returned by Save) and leaves the border unset.
-func (tb *TextBox) Border(c drawingml.Color, widthPoints float64) *TextBox {
-	tb.spPr.Ln = newLn(tb.pres, c, widthPoints)
-	return tb
+func (sr *ShapeRef) Border(c drawingml.Color, widthPoints float64) *ShapeRef {
+	sr.spPr.Ln = newLn(sr.pres, c, widthPoints)
+	return sr
+}
+
+// Rotation sets the shape's rotation, in degrees clockwise (e.g. 45, -90;
+// any value works, including beyond a full turn — 405 is the same
+// rotation as 45). AddShape and AddTextBox always give a shape its own
+// a:xfrm, so this is never a no-op in practice.
+func (sr *ShapeRef) Rotation(degrees float64) *ShapeRef {
+	if math.IsNaN(degrees) || math.IsInf(degrees, 0) {
+		sr.pres.addErr(errors.InvalidArgument("Rotation", "degrees", degrees, "must be a finite number"))
+		return sr
+	}
+	if sr.spPr.Xfrm != nil {
+		// Normalize to (-360, 360) before converting to 60,000ths of a
+		// degree (a:xfrm/@rot): rotation is inherently modular (405
+		// degrees looks identical to 45), so this changes nothing
+		// visually, but an un-normalized large input — Rotation(36000),
+		// say — would multiply out to a value ST_Angle's underlying
+		// xsd:int (32-bit signed) can't hold, corrupting the file
+		// silently since Save has no other way to detect it.
+		sr.spPr.Xfrm.Rot = int(math.Round(math.Mod(degrees, 360) * 60000))
+	}
+	return sr
+}
+
+// FlipH flips the shape horizontally.
+func (sr *ShapeRef) FlipH() *ShapeRef {
+	if sr.spPr.Xfrm != nil {
+		sr.spPr.Xfrm.FlipH = true
+	}
+	return sr
+}
+
+// FlipV flips the shape vertically.
+func (sr *ShapeRef) FlipV() *ShapeRef {
+	if sr.spPr.Xfrm != nil {
+		sr.spPr.Xfrm.FlipV = true
+	}
+	return sr
 }
 
 // maxLineWidthPoints is ST_LineWidth's maximum, 20,116,800 EMU, expressed
@@ -69,7 +112,7 @@ func (tb *TextBox) Border(c drawingml.Color, widthPoints float64) *TextBox {
 const maxLineWidthPoints = 1584
 
 // newLn builds a solid-color a:ln of the given width in points, shared by
-// TextBox.Border and PictureRef.Border. Point-to-EMU conversion happens
+// ShapeRef.Border and PictureRef.Border. Point-to-EMU conversion happens
 // here, at the fluent-API boundary, exactly once — the same pattern
 // Paragraph.FontSize uses for centipoints. An out-of-range width (negative,
 // or over ST_LineWidth's maximum) is recorded as an error on pres and

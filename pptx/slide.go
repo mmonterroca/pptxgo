@@ -49,10 +49,42 @@ type Slide struct {
 
 // AddTextBox adds a text-box shape at the given position and size (x, y, w,
 // h, all in EMUs — see the Inches/Points helpers) and returns a handle for
-// adding paragraphs to it.
+// adding paragraphs to it. It is addShape with a rect outline and the
+// txBox marker set — the same p:sp any other autoshape uses.
 func (s *Slide) AddTextBox(x, y, w, h int) *TextBox {
+	return s.addShape(ShapeRect, x, y, w, h, true)
+}
+
+// AddShape adds an autoshape with the given preset geometry (see the Shape*
+// constants, e.g. ShapeEllipse — any of ST_ShapeType's 187 names is
+// accepted, not only those with a named constant) at the given position
+// and size (x, y, w, h, all in EMUs — see the Inches/Points helpers), and
+// returns a handle for adding text content and setting fill/border/
+// rotation/flip. A name outside ST_ShapeType is recorded as an error on
+// the presentation (returned by Save), since a:prstGeom/@prst with an
+// unrecognized value is a file PowerPoint refuses to open.
+func (s *Slide) AddShape(prst PresetGeometry, x, y, w, h int) *ShapeRef {
+	if !IsValidPresetGeometry(prst) {
+		s.pres.addErr(errors.InvalidArgument("AddShape", "prst", string(prst),
+			"must be a valid ST_ShapeType preset geometry name (e.g. \"rect\", \"ellipse\")"))
+	}
+	return s.addShape(prst, x, y, w, h, false)
+}
+
+// addShape is the shared core of AddTextBox and AddShape: both place a p:sp
+// with a text body, differing only in preset geometry and whether p:cNvSpPr
+// carries the txBox marker (required for PowerPoint to treat a bare
+// rectangle as a text container rather than an autoshape).
+func (s *Slide) addShape(prst PresetGeometry, x, y, w, h int, isTextBox bool) *ShapeRef {
 	id := s.nextShapeID
 	s.nextShapeID++
+
+	name := "Shape"
+	cNvSpPr := &CNvSpPr{}
+	if isTextBox {
+		name = "TextBox"
+		cNvSpPr.TxBox = true
+	}
 
 	body := &drawingml.TextBody{BodyPr: &drawingml.BodyPr{}, LstStyle: &drawingml.LstStyle{}}
 	spPr := &SpPr{
@@ -60,12 +92,12 @@ func (s *Slide) AddTextBox(x, y, w, h int) *TextBox {
 			Off: &drawingml.Off{X: x, Y: y},
 			Ext: &drawingml.Ext{Cx: w, Cy: h},
 		},
-		PrstGeom: &drawingml.PrstGeom{Prst: "rect", AvLst: &drawingml.AvLst{}},
+		PrstGeom: &drawingml.PrstGeom{Prst: string(prst), AvLst: &drawingml.AvLst{}},
 	}
 	shape := &Shape{
 		NvSpPr: &NvSpPr{
-			CNvPr:   &CNvPr{ID: id, Name: fmt.Sprintf("TextBox %d", id)},
-			CNvSpPr: &CNvSpPr{TxBox: true},
+			CNvPr:   &CNvPr{ID: id, Name: fmt.Sprintf("%s %d", name, id)},
+			CNvSpPr: cNvSpPr,
 			NvPr:    &NvPr{},
 		},
 		SpPr:   spPr,
@@ -73,7 +105,7 @@ func (s *Slide) AddTextBox(x, y, w, h int) *TextBox {
 	}
 	s.spTree.Content = append(s.spTree.Content, shape)
 
-	return &TextBox{pres: s.pres, body: body, spPr: spPr}
+	return &ShapeRef{pres: s.pres, body: body, spPr: spPr}
 }
 
 // AddImage adds an image at (x, y), both in EMUs, auto-sized from the
