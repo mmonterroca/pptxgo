@@ -648,6 +648,98 @@ func TestShapeRef_InsetsAnchorAndWordWrap(t *testing.T) {
 	}
 }
 
+func TestShapeRef_InsetsExplicitZeroIsNotDroppedByOmitempty(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2)).Insets(0, 0, 0, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	for _, want := range []string{`lIns="0"`, `tIns="0"`, `rIns="0"`, `bIns="0"`} {
+		if !strings.Contains(slide, want) {
+			t.Errorf("expected explicit zero inset %s to marshal (not be dropped as unset), got %s", want, slide)
+		}
+	}
+}
+
+func TestShapeRef_InsetsRoundsRatherThanTruncates(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	// 2.3pt * 12700 EMU/pt = 29209.999999999996 in float64 — direct int()
+	// truncates to 29209, but the correct rounded EMU value is 29210.
+	s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2)).Insets(2.3, 0, 0, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `lIns="29210"`) {
+		t.Errorf("expected lIns=\"29210\" (rounded, not truncated to 29209), got %s", slide)
+	}
+}
+
+func TestParagraph_IndentExplicitZeroIsNotDroppedByOmitempty(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("no indent").Indent(0, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `marL="0"`) || !strings.Contains(slide, `indent="0"`) {
+		t.Errorf("expected marL=\"0\" and indent=\"0\" to marshal (not be dropped as unset), got %s", slide)
+	}
+}
+
+func TestParagraph_IndentRoundsRatherThanTruncates(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("x").Indent(2.3, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `marL="29210"`) {
+		t.Errorf("expected marL=\"29210\" (rounded, not truncated to 29209), got %s", slide)
+	}
+}
+
+func TestParagraph_LevelOutOfRangeAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("x").Level(9)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated out-of-range Level error")
+	}
+}
+
+func TestParagraph_LevelNegativeAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("x").Level(-1)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated negative-Level error")
+	}
+}
+
+func TestParagraph_LevelBoundaryValuesDoNotError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("a").Level(0)
+	tb.AddParagraph().Text("b").Level(8)
+
+	if err := p.Save(&bytes.Buffer{}); err != nil {
+		t.Fatalf("expected no error for boundary-valid levels 0 and 8, got %v", err)
+	}
+}
+
 func TestAddImage_MissingFileAccumulatesError(t *testing.T) {
 	p := New()
 	s := p.AddSlide()
