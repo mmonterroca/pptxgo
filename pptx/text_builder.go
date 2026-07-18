@@ -38,9 +38,10 @@ import (
 // outline; Rotation, FlipH, and FlipV set its transform. TextBox is an alias:
 // a text box is simply a ShapeRef whose geometry defaults to rect.
 type ShapeRef struct {
-	pres *Presentation
-	body *drawingml.TextBody
-	spPr *SpPr
+	pres      *Presentation
+	slidePath string // the owning slide's part path, needed for per-slide hyperlink relationships (see Paragraph.Hyperlink)
+	body      *drawingml.TextBody
+	spPr      *SpPr
 }
 
 // TextBox is a handle onto a text-box shape, returned by Slide.AddTextBox.
@@ -51,7 +52,7 @@ type TextBox = ShapeRef
 func (sr *ShapeRef) AddParagraph() *Paragraph {
 	p := &drawingml.Paragraph{}
 	sr.body.Paragraphs = append(sr.body.Paragraphs, p)
-	return &Paragraph{pres: sr.pres, p: p}
+	return &Paragraph{pres: sr.pres, slidePath: sr.slidePath, p: p}
 }
 
 // Fill sets the shape's background to a solid color.
@@ -238,9 +239,10 @@ func validatedLineWidthEMU(pres *Presentation, widthPoints float64) (emu int, ok
 // Alignment applies to the paragraph as a whole and can be called at any
 // point in the chain.
 type Paragraph struct {
-	pres    *Presentation
-	p       *drawingml.Paragraph
-	curRuns []*drawingml.Run
+	pres      *Presentation
+	slidePath string // the owning slide's part path, needed by Hyperlink to scope its relationship correctly
+	p         *drawingml.Paragraph
+	curRuns   []*drawingml.Run
 }
 
 // Text starts one or more new runs of text within the paragraph, splitting
@@ -330,6 +332,27 @@ func (pg *Paragraph) Color(c drawingml.Color) *Paragraph {
 // RGB value.
 func (pg *Paragraph) ColorScheme(scheme SchemeColor) *Paragraph {
 	pg.eachRPr(func(rpr *drawingml.RPr) { rpr.SolidFill = drawingml.NewSolidFillScheme(string(scheme)) })
+	return pg
+}
+
+// Hyperlink makes the current run(s) a clickable hyperlink to the given
+// external URL. Like Text and the other run-formatting methods, it applies
+// to whichever run(s) the most recent Text call started, and is a no-op
+// if called before any Text call. The relationship is scoped to the
+// owning slide's own .rels, the same pattern AddImage already established
+// for media.
+func (pg *Paragraph) Hyperlink(url string) *Paragraph {
+	if len(pg.curRuns) == 0 {
+		return pg
+	}
+	rid, err := pg.pres.pkg.Relationships(pg.slidePath).AddHyperlink(url)
+	if err != nil {
+		pg.pres.addErr(err)
+		return pg
+	}
+	pg.eachRPr(func(rpr *drawingml.RPr) {
+		rpr.HlinkClick = &drawingml.HlinkClick{XmlnsR: drawingml.NamespaceRelationships, RID: rid}
+	})
 	return pg
 }
 

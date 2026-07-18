@@ -1041,6 +1041,171 @@ func TestSchemeColor_Bg1Tx1Bg2Tx2AreDistinctFromDk1Lt1(t *testing.T) {
 }
 
 // pngBytes returns a solid-color w x h PNG, encoded in memory.
+func TestParagraph_HyperlinkEmitsHlinkClickAndSlideScopedRel(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Text("Learn more").Hyperlink("https://example.com/docs")
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+	rels := string(files["ppt/slides/_rels/slide1.xml.rels"])
+
+	if !strings.Contains(slide, "<a:hlinkClick") {
+		t.Fatalf("expected a:hlinkClick in slide1.xml, got %s", slide)
+	}
+	if !strings.Contains(rels, `Target="https://example.com/docs"`) || !strings.Contains(rels, `TargetMode="External"`) {
+		t.Errorf("expected an External relationship to the hyperlink URL, got %s", rels)
+	}
+}
+
+func TestParagraph_HyperlinkBeforeTextIsANoOp(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tb := s.AddTextBox(Inches(1), Inches(1), Inches(8), Inches(2))
+	tb.AddParagraph().Hyperlink("https://example.com").Text("plain")
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+	if strings.Contains(slide, "a:hlinkClick") {
+		t.Errorf("expected Hyperlink called before Text to be a no-op, got %s", slide)
+	}
+}
+
+func TestAddImage_DedupsIdenticalContentOnSameSlide(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	img := pngBytes(t, 40, 40)
+	s.AddImageFromBytes(img, Inches(1), Inches(1))
+	s.AddImageFromBytes(img, Inches(3), Inches(1))
+
+	files := generateFrom(t, p)
+
+	mediaCount := 0
+	for name := range files {
+		if strings.HasPrefix(name, "ppt/media/") {
+			mediaCount++
+		}
+	}
+	if mediaCount != 1 {
+		t.Errorf("expected exactly 1 media part for two byte-identical images, got %d: %v", mediaCount, mapKeys(files))
+	}
+
+	rels := string(files["ppt/slides/_rels/slide1.xml.rels"])
+	if strings.Count(rels, "<Relationship ") != 2 { // slideLayout rel + the one deduped image rel; "<Relationship " (trailing space) excludes the root <Relationships> tag
+		t.Errorf("expected 2 relationships (slideLayout + 1 deduped image), got %s", rels)
+	}
+}
+
+func TestAddImage_DedupSharesOnePartAcrossSlidesButEachGetsOwnRel(t *testing.T) {
+	p := New()
+	img := pngBytes(t, 40, 40)
+	s1 := p.AddSlide()
+	s1.AddImageFromBytes(img, Inches(1), Inches(1))
+	s2 := p.AddSlide()
+	s2.AddImageFromBytes(img, Inches(1), Inches(1))
+
+	files := generateFrom(t, p)
+
+	mediaCount := 0
+	for name := range files {
+		if strings.HasPrefix(name, "ppt/media/") {
+			mediaCount++
+		}
+	}
+	if mediaCount != 1 {
+		t.Errorf("expected exactly 1 shared media part across both slides, got %d: %v", mediaCount, mapKeys(files))
+	}
+
+	for _, relsPath := range []string{"ppt/slides/_rels/slide1.xml.rels", "ppt/slides/_rels/slide2.xml.rels"} {
+		rels := string(files[relsPath])
+		if !strings.Contains(rels, "Target=\"../media/") {
+			t.Errorf("expected %s to have its own relationship to the shared media part, got %s", relsPath, rels)
+		}
+	}
+}
+
+func TestAddImage_DifferentContentGetsSeparateParts(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddImageFromBytes(pngBytes(t, 40, 40), Inches(1), Inches(1))
+	s.AddImageFromBytes(pngBytes(t, 60, 60), Inches(3), Inches(1))
+
+	files := generateFrom(t, p)
+
+	mediaCount := 0
+	for name := range files {
+		if strings.HasPrefix(name, "ppt/media/") {
+			mediaCount++
+		}
+	}
+	if mediaCount != 2 {
+		t.Errorf("expected 2 distinct media parts for differently-sized images, got %d: %v", mediaCount, mapKeys(files))
+	}
+}
+
+func TestNew_WithSlideSizeOverridesDefault(t *testing.T) {
+	p := New(WithSlideSize(Inches(10), Inches(7.5)))
+	files := generateFrom(t, p)
+	pres := string(files["ppt/presentation.xml"])
+
+	if !strings.Contains(pres, `<p:sldSz cx="9144000" cy="6858000">`) {
+		t.Errorf("expected a custom sldSz with no type attribute, got %s", pres)
+	}
+}
+
+func TestNew_WithStandard4x3SetsScreen4x3Type(t *testing.T) {
+	p := New(WithStandard4x3())
+	files := generateFrom(t, p)
+	pres := string(files["ppt/presentation.xml"])
+
+	if !strings.Contains(pres, `cx="9144000" cy="6858000" type="screen4x3"`) {
+		t.Errorf("expected the 4:3 preset with type=\"screen4x3\", got %s", pres)
+	}
+}
+
+func TestNew_DefaultIsStillWidescreen16x9(t *testing.T) {
+	p := New()
+	files := generateFrom(t, p)
+	pres := string(files["ppt/presentation.xml"])
+
+	if !strings.Contains(pres, `cx="12192000" cy="6858000" type="screen16x9"`) {
+		t.Errorf("expected New()'s default 16:9 widescreen size unchanged, got %s", pres)
+	}
+}
+
+func TestNew_WithSlideSizeTooSmallAccumulatesErrorAndKeepsDefault(t *testing.T) {
+	p := New(WithSlideSize(Inches(0.5), Inches(0.5)))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated too-small-slide-size error")
+	}
+}
+
+func TestNew_WithSlideSizeNegativeAccumulatesError(t *testing.T) {
+	p := New(WithSlideSize(-Inches(10), Inches(7.5)))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated negative-slide-size error")
+	}
+}
+
+func TestNew_WithSlideSizeTooLargeAccumulatesError(t *testing.T) {
+	p := New(WithSlideSize(maxSlideSizeEMU+1, Inches(7.5)))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated too-large-slide-size error")
+	}
+}
+
+func TestNew_WithSlideSizeBoundaryValuesDoNotError(t *testing.T) {
+	p := New(WithSlideSize(minSlideSizeEMU, maxSlideSizeEMU))
+
+	if err := p.Save(&bytes.Buffer{}); err != nil {
+		t.Fatalf("expected no error for boundary-valid slide size, got %v", err)
+	}
+}
+
 func pngBytes(t *testing.T, w, h int) []byte {
 	t.Helper()
 	var buf bytes.Buffer

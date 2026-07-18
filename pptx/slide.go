@@ -121,7 +121,7 @@ func (s *Slide) addShape(prst PresetGeometry, x, y, w, h int, isTextBox bool) *S
 	}
 	s.spTree.Content = append(s.spTree.Content, shape)
 
-	return &ShapeRef{pres: s.pres, body: body, spPr: spPr}
+	return &ShapeRef{pres: s.pres, slidePath: s.path, body: body, spPr: spPr}
 }
 
 // AddImage adds an image at (x, y), both in EMUs, auto-sized from the
@@ -224,11 +224,9 @@ func (s *Slide) addPicture(data []byte, x, y, w, h int, useExplicitSize bool) *P
 	}
 	spPr.Xfrm = &drawingml.Xfrm{Off: &drawingml.Off{X: x, Y: y}, Ext: &drawingml.Ext{Cx: w, Cy: h}}
 
-	name := s.pres.pkg.IDs().NextID("image")
-	part := "ppt/media/" + name + "." + ext
-	s.pres.pkg.AddMediaPart(part, contentType, data)
+	basename := s.pres.mediaBasename(data, contentType, ext)
 
-	rid, relErr := s.pres.pkg.Relationships(s.path).AddImage("../media/" + name + "." + ext)
+	rid, relErr := s.pres.pkg.Relationships(s.path).AddImage("../media/" + basename)
 	if relErr != nil {
 		panic(relErr) // static, well-formed arguments; cannot fail
 	}

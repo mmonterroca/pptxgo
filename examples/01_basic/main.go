@@ -70,8 +70,12 @@ func main() {
 		Text("Quarterly Results").Bold().FontSize(32).Font("Calibri").Color(pptx.RGB(0x1F, 0x49, 0x7D)).
 		Alignment(pptx.AlignCenter)
 
-	s.AddImageFromBytes(logoPNG(), pptx.Inches(1), pptx.Inches(3.5)).
+	logo := logoPNG()
+	s.AddImageFromBytes(logo, pptx.Inches(1), pptx.Inches(3.5)).
 		Border(pptx.RGB(0x44, 0x54, 0x6A), 1.0)
+	// Same bytes as above, placed again elsewhere: pptx.Presentation dedups
+	// identical media content, so this embeds only one ppt/media/ part.
+	s.AddImageFromBytesWithSize(logo, pptx.Inches(11.6), pptx.Inches(6.9), pptx.Inches(0.5), pptx.Inches(0.31))
 
 	shape := s.AddShape(pptx.ShapeEllipse, pptx.Inches(6.5), pptx.Inches(3.5), pptx.Inches(2.5), pptx.Inches(1.5)).
 		Fill(pptx.RGB(0x1F, 0x49, 0x7D)).
@@ -95,6 +99,10 @@ func main() {
 	list.AddParagraph().
 		Text("Next: expand partner channel").FontSize(16).Font("Calibri").
 		NumberedBullet(pptx.NumArabicPeriod).Indent(18, -18).Level(1)
+	list.AddParagraph().
+		Text("See the full report").FontSize(16).Font("Calibri").
+		ColorScheme(pptx.SchemeHyperlink).Underline().Hyperlink("https://example.com/quarterly-report").
+		Bullet("•", "Arial").Indent(18, -18)
 
 	f, err := os.Create("01_basic_demo.pptx")
 	if err != nil {

@@ -25,11 +25,13 @@ SOFTWARE.
 package pptx
 
 import (
+	"crypto/sha256"
 	"io"
 	"strconv"
 
 	"github.com/mmonterroca/pptxgo/drawingml"
 	"github.com/mmonterroca/pptxgo/opc"
+	"github.com/mmonterroca/pptxgo/pkg/errors"
 )
 
 // Slide 16:9 widescreen canvas size (13.333in x 7.5in) and notes page size
@@ -39,6 +41,14 @@ const (
 	slideHeightEMU = 6858000
 	notesWidthEMU  = 6858000
 	notesHeightEMU = 9144000
+)
+
+// Standard slide sizes, in EMUs, for use with WithSlideSize.
+const (
+	SlideSizeWidescreen16x9Width  = slideWidthEMU // 13.333in x 7.5in — PowerPoint's modern default (New's own default)
+	SlideSizeWidescreen16x9Height = slideHeightEMU
+	SlideSizeStandard4x3Width     = 9144000 // 10in x 7.5in — the pre-2013 PowerPoint default
+	SlideSizeStandard4x3Height    = 6858000
 )
 
 // Conventional ID ranges: PowerPoint reserves the low range of the 32-bit
@@ -56,16 +66,81 @@ const (
 // presentation needs regardless of slide count — plus whatever slides
 // AddSlide adds. New() starts with zero slides.
 type Presentation struct {
-	pkg        *opc.Package
-	pres       *XMLPresentation
-	presRels   *opc.RelationshipManager
-	slideCount int
-	errs       []error
+	pkg         *opc.Package
+	pres        *XMLPresentation
+	presRels    *opc.RelationshipManager
+	slideCount  int
+	errs        []error
+	mediaByHash map[[sha256.Size]byte]string // content hash -> already-embedded media part's ppt/media/ basename; see mediaBasename
+}
+
+// Option configures a Presentation at construction time, for use with New.
+type Option func(*presentationConfig)
+
+// presentationConfig collects Option values before New builds anything —
+// keeping every option's effect in one place rather than threading a
+// growing parameter list through New's body.
+type presentationConfig struct {
+	slideWidthEMU  int
+	slideHeightEMU int
+	slideSizeType  string // ST_SlideSizeType, e.g. "screen16x9"; "" when the size doesn't match a named preset
+	err            error  // an Option's validation error, applied to the *Presentation once New has one to record it on
+}
+
+// ST_SlideSizeCoordinate's inclusive range, in EMUs (1in to 56in) — the
+// schema's bounds for p:sldSz's cx/cy attributes.
+const (
+	minSlideSizeEMU = 914400
+	maxSlideSizeEMU = 51206400
+)
+
+// WithSlideSize overrides New's default 16:9 widescreen canvas (13.333in x
+// 7.5in) with an explicit width and height, in EMUs (see the Inches
+// helper) — including a portrait layout, by simply passing a height
+// greater than the width. The resulting p:sldSz carries no type
+// attribute, since ST_SlideSizeType names a fixed set of standard sizes
+// and an arbitrary custom size doesn't correspond to any of them. A
+// dimension outside ST_SlideSizeCoordinate's 914400-51206400 EMU range
+// (1in to 56in) is recorded as an error on the presentation (returned by
+// Save) and leaves New's own default size in effect.
+func WithSlideSize(widthEMU, heightEMU int) Option {
+	return func(c *presentationConfig) {
+		if widthEMU < minSlideSizeEMU || widthEMU > maxSlideSizeEMU ||
+			heightEMU < minSlideSizeEMU || heightEMU > maxSlideSizeEMU {
+			c.err = errors.InvalidArgument("WithSlideSize", "widthEMU/heightEMU", [2]int{widthEMU, heightEMU},
+				"must each be between 914400 and 51206400 (ST_SlideSizeCoordinate's 1in-56in range)")
+			return
+		}
+		c.slideWidthEMU = widthEMU
+		c.slideHeightEMU = heightEMU
+		c.slideSizeType = ""
+	}
+}
+
+// WithStandard4x3 sets the slide canvas to the pre-2013 PowerPoint default,
+// 10in x 7.5in (4:3), instead of New's own 16:9 widescreen default.
+func WithStandard4x3() Option {
+	return func(c *presentationConfig) {
+		c.slideWidthEMU = SlideSizeStandard4x3Width
+		c.slideHeightEMU = SlideSizeStandard4x3Height
+		c.slideSizeType = "screen4x3"
+	}
 }
 
 // New builds a presentation with its theme, slide master, and slide layout
-// already wired, and no slides. Call AddSlide to add content.
-func New() *Presentation {
+// already wired, and no slides. Call AddSlide to add content. With no
+// options, the slide canvas is 16:9 widescreen; pass WithSlideSize or
+// WithStandard4x3 to override it.
+func New(opts ...Option) *Presentation {
+	cfg := &presentationConfig{
+		slideWidthEMU:  slideWidthEMU,
+		slideHeightEMU: slideHeightEMU,
+		slideSizeType:  "screen16x9",
+	}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
 	pkg := opc.NewPackage()
 
 	pkg.AddRawPart(PathTheme1, opc.ContentTypeTheme, []byte(defaultTheme))
@@ -128,7 +203,7 @@ func New() *Presentation {
 		SldMasterIdLst: &SldMasterIdLst{
 			Entries: []*SldMasterId{{ID: firstSldMasterID, RID: masterRID}},
 		},
-		SldSz:   &SldSz{Cx: slideWidthEMU, Cy: slideHeightEMU, Type: "screen16x9"},
+		SldSz:   &SldSz{Cx: cfg.slideWidthEMU, Cy: cfg.slideHeightEMU, Type: cfg.slideSizeType},
 		NotesSz: &NotesSz{Cx: notesWidthEMU, Cy: notesHeightEMU},
 	}
 	pkg.AddPart(PathPresentation, ContentTypePresentation, pres)
@@ -147,7 +222,9 @@ func New() *Presentation {
 		panic(err)
 	}
 
-	return &Presentation{pkg: pkg, pres: pres, presRels: presRels}
+	p := &Presentation{pkg: pkg, pres: pres, presRels: presRels}
+	p.addErr(cfg.err)
+	return p
 }
 
 // AddSlide appends a new, empty slide — using the presentation's one slide
@@ -194,6 +271,30 @@ func (p *Presentation) addErr(err error) {
 	if err != nil {
 		p.errs = append(p.errs, err)
 	}
+}
+
+// mediaBasename returns the ppt/media/ basename data should be embedded
+// under, reusing an already-embedded part when byte-identical content was
+// embedded before rather than writing a duplicate part every time an
+// AddImage* call places the same image again (across slides, or several
+// times on one slide). Slide.addPicture calls this instead of unconditionally
+// allocating a new media part.
+func (p *Presentation) mediaBasename(data []byte, contentType, ext string) string {
+	hash := sha256.Sum256(data)
+	if basename, ok := p.mediaByHash[hash]; ok {
+		return basename
+	}
+
+	name := p.pkg.IDs().NextID("image")
+	basename := name + "." + ext
+	p.pkg.AddMediaPart("ppt/media/"+basename, contentType, data)
+
+	if p.mediaByHash == nil {
+		p.mediaByHash = make(map[[sha256.Size]byte]string)
+	}
+	p.mediaByHash[hash] = basename
+
+	return basename
 }
 
 // Save writes the presentation to w as a .pptx file. If any fluent builder
