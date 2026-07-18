@@ -179,16 +179,18 @@ type NvPr struct {
 // layout (and, from there, the master) for position/formatting
 // inheritance — a slide (or layout) placeholder that sets no a:xfrm of its
 // own inherits the layout's (or master's). Idx is the schema's own
-// ST_PlaceholderIndex default of 0 when unset (plain int + omitempty, not
-// *int — unlike MarL/Lvl/Indent elsewhere, 0 here is genuinely "not set,
-// use the default" rather than a meaningful explicit value), so a title or
-// single-body placeholder never needs to set it; only a second placeholder
-// of the same type on one slide (e.g. a two-content layout's second body)
-// needs a distinct idx.
+// ST_PlaceholderIndex default of 0 when unset (plain uint32 + omitempty,
+// not *int — unlike MarL/Lvl/Indent elsewhere, 0 here is genuinely "not
+// set, use the default" rather than a meaningful explicit value), so a
+// title or single-body placeholder never needs to set it; only a second
+// placeholder of the same type on one slide (e.g. a two-content layout's
+// second body) needs a distinct idx. uint32, not int: ST_PlaceholderIndex
+// is xsd:unsignedInt, so a negative value would be schema-invalid — the
+// type itself rules that out rather than needing a runtime check.
 type Ph struct {
 	XMLName xml.Name        `xml:"p:ph"`
 	Type    PlaceholderType `xml:"type,attr,omitempty"`
-	Idx     int             `xml:"idx,attr,omitempty"`
+	Idx     uint32          `xml:"idx,attr,omitempty"`
 }
 
 // ClrMapOvr is p:clrMapOvr, present on every slide and slide layout: it

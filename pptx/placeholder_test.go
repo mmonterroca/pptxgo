@@ -132,6 +132,28 @@ func TestNew_MasterBodyStyleHasBulletDefaults(t *testing.T) {
 	}
 }
 
+func TestNew_MasterPlaceholdersHaveExplicitRectGeometry(t *testing.T) {
+	// The master's own placeholders are the inheritance chain's root — they
+	// have no ancestor to inherit a:prstGeom from — so unlike a layout/slide
+	// placeholder (which legitimately omits it), they must declare an
+	// explicit rect geometry for viewers that don't default a geometry-less
+	// placeholder to a rectangle.
+	files := generate(t)
+	master := string(files["ppt/slideMasters/slideMaster1.xml"])
+
+	titleIdx := strings.Index(master, `name="Title Placeholder 2"`)
+	bodyIdx := strings.Index(master, `name="Body Placeholder 3"`)
+	if titleIdx < 0 || bodyIdx < 0 {
+		t.Fatalf("master placeholder shapes not found, got %s", master)
+	}
+	if !strings.Contains(master[titleIdx:bodyIdx], `<a:prstGeom prst="rect">`) {
+		t.Errorf("master title placeholder missing explicit rect prstGeom, got %s", master[titleIdx:bodyIdx])
+	}
+	if !strings.Contains(master[bodyIdx:], `<a:prstGeom prst="rect">`) {
+		t.Errorf("master body placeholder missing explicit rect prstGeom, got %s", master[bodyIdx:])
+	}
+}
+
 func TestNew_MasterPlaceholderGeometryScalesWithSlideSize(t *testing.T) {
 	// The 16:9 default and 4:3 preset share the same slide height
 	// (6858000 EMU) but differ in width, so the title placeholder's width
