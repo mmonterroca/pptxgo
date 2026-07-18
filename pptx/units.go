@@ -60,3 +60,51 @@ const (
 	AlignRight   Alignment = "r"
 	AlignJustify Alignment = "just"
 )
+
+// PresetGeometry names a preset autoshape outline (a:prstGeom's prst
+// attribute, schema type ST_ShapeType) for use with Slide.AddShape. This is
+// a representative subset of the ~180 shapes ST_ShapeType allows; any other
+// valid preset name can still be passed as a plain PresetGeometry("name").
+type PresetGeometry string
+
+// Common preset geometries.
+const (
+	ShapeRect           PresetGeometry = "rect"
+	ShapeRoundRect      PresetGeometry = "roundRect"
+	ShapeEllipse        PresetGeometry = "ellipse"
+	ShapeTriangle       PresetGeometry = "triangle"
+	ShapeRightTriangle  PresetGeometry = "rtTriangle"
+	ShapeParallelogram  PresetGeometry = "parallelogram"
+	ShapeTrapezoid      PresetGeometry = "trapezoid"
+	ShapeDiamond        PresetGeometry = "diamond"
+	ShapePentagon       PresetGeometry = "pentagon"
+	ShapeHexagon        PresetGeometry = "hexagon"
+	ShapeHeptagon       PresetGeometry = "heptagon"
+	ShapeOctagon        PresetGeometry = "octagon"
+	ShapeStar4          PresetGeometry = "star4"
+	ShapeStar5          PresetGeometry = "star5"
+	ShapeStar6          PresetGeometry = "star6"
+	ShapeStar8          PresetGeometry = "star8"
+	ShapeRightArrow     PresetGeometry = "rightArrow"
+	ShapeLeftArrow      PresetGeometry = "leftArrow"
+	ShapeUpArrow        PresetGeometry = "upArrow"
+	ShapeDownArrow      PresetGeometry = "downArrow"
+	ShapeLeftRightArrow PresetGeometry = "leftRightArrow"
+	ShapeUpDownArrow    PresetGeometry = "upDownArrow"
+	ShapeChevron        PresetGeometry = "chevron"
+	ShapeDonut          PresetGeometry = "donut"
+	ShapeNoSmoking      PresetGeometry = "noSmoking"
+	ShapeHeart          PresetGeometry = "heart"
+	ShapeLightningBolt  PresetGeometry = "lightningBolt"
+	ShapeSun            PresetGeometry = "sun"
+	ShapeMoon           PresetGeometry = "moon"
+	ShapeCloud          PresetGeometry = "cloud"
+	ShapeArc            PresetGeometry = "arc"
+	ShapePlaque         PresetGeometry = "plaque"
+	ShapeCan            PresetGeometry = "can"
+	ShapeCube           PresetGeometry = "cube"
+	ShapeBevel          PresetGeometry = "bevel"
+	ShapeSmileyFace     PresetGeometry = "smileyFace"
+	ShapeWave           PresetGeometry = "wave"
+	ShapeDoubleWave     PresetGeometry = "doubleWave"
+)

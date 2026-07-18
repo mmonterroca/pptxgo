@@ -66,6 +66,15 @@ func main() {
 	s.AddImageFromBytes(logoPNG(), pptx.Inches(1), pptx.Inches(3.5)).
 		Border(pptx.RGB(0x44, 0x54, 0x6A), 1.0)
 
+	shape := s.AddShape(pptx.ShapeEllipse, pptx.Inches(6.5), pptx.Inches(3.5), pptx.Inches(2.5), pptx.Inches(1.5)).
+		Fill(pptx.RGB(0x1F, 0x49, 0x7D)).
+		Border(pptx.RGB(0x44, 0x54, 0x6A), 1.0).
+		Rotation(15).
+		FlipH()
+	shape.AddParagraph().
+		Text("On Track").Bold().FontSize(18).Font("Calibri").Color(pptx.RGB(0xFF, 0xFF, 0xFF)).
+		Alignment(pptx.AlignCenter)
+
 	f, err := os.Create("01_basic_demo.pptx")
 	if err != nil {
 		log.Fatal(err)

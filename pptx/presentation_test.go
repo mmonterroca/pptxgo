@@ -377,6 +377,85 @@ func TestTextBox_FillAndBorder_EmitsSolidFillBeforeLn(t *testing.T) {
 	}
 }
 
+func TestAddShape_UsesGivenPresetGeometryNotRect(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeEllipse, Inches(1), Inches(1), Inches(2), Inches(2)).
+		AddParagraph().Text("On Track")
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:prstGeom prst="ellipse">`) {
+		t.Errorf("expected prst=\"ellipse\", got %s", slide)
+	}
+	if strings.Contains(slide, `txBox="true"`) {
+		t.Errorf("expected AddShape not to set the txBox marker (that's AddTextBox-only), got %s", slide)
+	}
+	if !strings.Contains(slide, "On Track") {
+		t.Errorf("expected shape text content, got %s", slide)
+	}
+}
+
+func TestAddTextBox_StillSetsTxBoxMarkerAndRectGeometry(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddTextBox(Inches(1), Inches(1), Inches(2), Inches(2))
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:prstGeom prst="rect">`) {
+		t.Errorf("expected prst=\"rect\", got %s", slide)
+	}
+	if !strings.Contains(slide, `txBox="true"`) {
+		t.Errorf("expected the txBox marker preserved after the AddShape refactor, got %s", slide)
+	}
+}
+
+func TestShapeRef_RotationConvertsDegreesTo60000ths(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).Rotation(45)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	// 45 degrees * 60,000 = 2,700,000.
+	if !strings.Contains(slide, `rot="2700000"`) {
+		t.Errorf("expected rot=\"2700000\" (45 degrees), got %s", slide)
+	}
+}
+
+func TestShapeRef_NegativeRotationIsPreserved(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).Rotation(-90)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `rot="-5400000"`) {
+		t.Errorf("expected rot=\"-5400000\" (-90 degrees), got %s", slide)
+	}
+}
+
+func TestShapeRef_FlipHAndFlipVSetXfrmAttrs(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).FlipH().FlipV()
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `flipH="true"`) {
+		t.Errorf("expected flipH=\"true\", got %s", slide)
+	}
+	if !strings.Contains(slide, `flipV="true"`) {
+		t.Errorf("expected flipV=\"true\", got %s", slide)
+	}
+}
+
 func TestAddImage_MissingFileAccumulatesError(t *testing.T) {
 	p := New()
 	s := p.AddSlide()
