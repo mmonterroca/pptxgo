@@ -11,10 +11,13 @@ Microsoft PowerPoint .pptx (OOXML / PresentationML) generation in Go.
 in place; `pptx.New()` builds a presentation's theme, slide master, and
 slide layout. `AddSlide` adds slides; `AddTextBox`/`AddParagraph` add
 formatted text; `AddImage` and its variants embed PNG/JPEG/GIF images
-(`p:pic`, with automatic format and size detection); and text boxes and
-images can both take a solid background `Fill` and a `Border` — all
-verified against both the Open XML SDK's schema validator and LibreOffice
-Impress (see Verification below). Tables and templates follow.
+(`p:pic`, with automatic format and size detection); tables, gradients,
+dashed lines, and multi-level bullets are all supported — all verified
+against both the Open XML SDK's schema validator and LibreOffice Impress
+(see Verification below). `pptx.Open`/`OpenFromBytes`/`OpenFromReader` open
+an existing `.pptx` for template-style editing — enumerate slides, inspect
+or `Merge`/`Replace` their text — with every untouched part preserved
+byte-for-byte (see `examples/02_read_and_modify`).
 
 ```go
 p := pptx.New()

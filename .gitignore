@@ -20,3 +20,10 @@ PptxValidator/obj/
 examples/[0-9][0-9]_*/*
 !examples/[0-9][0-9]_*/**/*.go
 !examples/[0-9][0-9]_*/**/*.md
+
+# Committed test fixtures are real .pptx files (foreign-producer, not
+# pptxgo's own output) despite the blanket *.pptx ignore above, which exists
+# for generated demo/example output, not source-controlled test data.
+!opc/testdata/*.pptx
+!pptx/testdata/*.pptx
+!examples/02_read_and_modify/template.pptx
