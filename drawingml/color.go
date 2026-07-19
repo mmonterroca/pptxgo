@@ -130,3 +130,43 @@ type SchemeClr struct {
 type NoFill struct {
 	XMLName xml.Name `xml:"a:noFill"`
 }
+
+// GradFill (a:gradFill, CT_GradientFillProperties) is a linear gradient
+// fill: an ordered list of color stops (GsLst) blended along an axis (Lin).
+// Only the linear-gradient shape (a:lin) is modeled — the schema's other
+// gradient path option (a:path, for radial/rectangular/shape gradients) is
+// out of scope until a caller needs it. Field order mirrors the schema:
+// GsLst before Lin.
+type GradFill struct {
+	XMLName      xml.Name `xml:"a:gradFill"`
+	RotWithShape OnOff    `xml:"rotWithShape,attr,omitempty"`
+	GsLst        *GsLst   `xml:"a:gsLst"`
+	Lin          *Lin     `xml:"a:lin,omitempty"`
+}
+
+// GsLst (a:gsLst, CT_GradientStopList) is a gradient's ordered list of color
+// stops. The schema requires at least 2.
+type GsLst struct {
+	XMLName xml.Name `xml:"a:gsLst"`
+	Gs      []*Gs    `xml:"a:gs"`
+}
+
+// Gs (a:gs, CT_GradientStop) is one color stop within a gradient: a color
+// (as either an explicit RGB value or a theme color reference, the same
+// SolidFill choice) at a position along the gradient's axis. Pos is in
+// thousandths of a percent (0-100000; e.g. 50000 is the stop's midpoint).
+type Gs struct {
+	XMLName   xml.Name   `xml:"a:gs"`
+	Pos       int        `xml:"pos,attr"`
+	SrgbClr   *SrgbClr   `xml:"a:srgbClr,omitempty"`
+	SchemeClr *SchemeClr `xml:"a:schemeClr,omitempty"`
+}
+
+// Lin (a:lin, CT_LinearShadeProperties) is a linear gradient's direction:
+// an angle in 60,000ths of a degree, and whether that angle rotates with
+// the shape it fills.
+type Lin struct {
+	XMLName xml.Name `xml:"a:lin"`
+	Ang     int      `xml:"ang,attr"`
+	Scaled  OnOff    `xml:"scaled,attr,omitempty"`
+}

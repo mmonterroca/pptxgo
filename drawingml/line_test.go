@@ -48,3 +48,18 @@ func TestLn_ZeroWidthOmitsAttr(t *testing.T) {
 		t.Errorf("expected no w attr for zero width, got %s", got)
 	}
 }
+
+func TestLn_PrstDashMarshalsAfterSolidFill(t *testing.T) {
+	ln := NewLn(Color{R: 0x1F, G: 0x49, B: 0x7D}, 12700)
+	ln.PrstDash = &PrstDash{Val: "dash"}
+	got := marshal(t, ln)
+
+	if !strings.Contains(got, `<a:prstDash val="dash">`) {
+		t.Errorf("expected a:prstDash element, got %s", got)
+	}
+	fillIdx := strings.Index(got, "<a:solidFill>")
+	dashIdx := strings.Index(got, "<a:prstDash")
+	if fillIdx == -1 || dashIdx == -1 || fillIdx > dashIdx {
+		t.Errorf("expected a:solidFill before a:prstDash (CT_LineProperties sequence), got %s", got)
+	}
+}

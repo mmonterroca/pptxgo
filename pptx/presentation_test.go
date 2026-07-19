@@ -705,6 +705,128 @@ func TestShapeRef_NoFillThenFillClearsNoFill(t *testing.T) {
 	}
 }
 
+func TestShapeRef_GradientFillEmitsGradFillWithStopsAndAngle(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		GradientFill(90, GradientStop{Color: RGB(0xFF, 0, 0), Pos: 0}, GradientStop{Color: RGB(0, 0, 0xFF), Pos: 100})
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:gradFill rotWithShape="1">`) {
+		t.Errorf("expected a:gradFill, got %s", slide)
+	}
+	firstPosIdx := strings.Index(slide, `<a:gs pos="0">`)
+	secondPosIdx := strings.Index(slide, `<a:gs pos="100000">`)
+	if firstPosIdx == -1 || secondPosIdx == -1 || firstPosIdx > secondPosIdx {
+		t.Errorf("expected pos=0 stop before pos=100000 stop, got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:srgbClr val="FF0000">`) {
+		t.Errorf("expected first stop's color FF0000, got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:srgbClr val="0000FF">`) {
+		t.Errorf("expected second stop's color 0000FF, got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:lin ang="5400000">`) {
+		t.Errorf("expected 90deg -> 5400000 (90 * 60000), got %s", slide)
+	}
+}
+
+func TestShapeRef_GradientFillClearsSolidFillAndNoFill(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		Fill(RGB(0, 0xFF, 0)).
+		GradientFill(0, GradientStop{Color: RGB(0xFF, 0, 0), Pos: 0}, GradientStop{Color: RGB(0, 0, 0xFF), Pos: 100})
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if strings.Contains(slide, "a:solidFill") {
+		t.Errorf("expected GradientFill to clear the earlier Fill call, got %s", slide)
+	}
+	if !strings.Contains(slide, "a:gradFill") {
+		t.Errorf("expected a:gradFill present, got %s", slide)
+	}
+}
+
+func TestShapeRef_GradientFillTooFewStopsAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		GradientFill(0, GradientStop{Color: RGB(0xFF, 0, 0), Pos: 0})
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated too-few-stops error")
+	}
+}
+
+func TestShapeRef_GradientFillStopPosOutOfRangeAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		GradientFill(0, GradientStop{Color: RGB(0xFF, 0, 0), Pos: -1}, GradientStop{Color: RGB(0, 0, 0xFF), Pos: 100})
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated out-of-range stop error")
+	}
+}
+
+func TestShapeRef_GradientFillAngleNeverHitsExclusiveUpperBound(t *testing.T) {
+	// ST_PositiveFixedAngle is [0, 21600000) -- 21600000 (== 360deg) is the
+	// EXCLUSIVE max. An angle in the top ~0.0000083deg rounds up to exactly
+	// 21600000 without the fold-to-zero guard.
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		GradientFill(-0.000005, GradientStop{Color: RGB(0xFF, 0, 0), Pos: 0}, GradientStop{Color: RGB(0, 0, 0xFF), Pos: 100})
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if strings.Contains(slide, `ang="21600000"`) {
+		t.Errorf("expected the angle to fold 360deg back to 0 (21600000 is out of ST_PositiveFixedAngle's [0, 21600000) range), got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:lin ang="0">`) {
+		t.Errorf("expected -0.000005deg to normalize/fold to ang=0, got %s", slide)
+	}
+}
+
+func TestShapeRef_GradientFillNegativeAngleNormalizesToPositiveRange(t *testing.T) {
+	// a:lin/@ang is ST_PositiveFixedAngle (schema range [0, 21600000)) --
+	// unlike Rotation's a:xfrm/@rot (ST_Angle, signed), a negative value
+	// here is schema-invalid, not just an unusual-but-legal one.
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		GradientFill(-45, GradientStop{Color: RGB(0xFF, 0, 0), Pos: 0}, GradientStop{Color: RGB(0, 0, 0xFF), Pos: 100})
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	// -45 normalized into [0, 360) is 315; 315 * 60000 = 18900000.
+	if !strings.Contains(slide, `<a:lin ang="18900000">`) {
+		t.Errorf("expected -45deg to normalize to 315deg (18900000 in 60,000ths), got %s", slide)
+	}
+	if strings.Contains(slide, `ang="-`) {
+		t.Errorf("expected no negative ang attribute (schema-invalid for ST_PositiveFixedAngle), got %s", slide)
+	}
+}
+
+func TestSlide_BackgroundGradientEmitsGradFillOnBgPr(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.BackgroundGradient(45, GradientStop{Color: RGB(0, 0, 0), Pos: 0}, GradientStop{Color: RGB(0xFF, 0xFF, 0xFF), Pos: 100})
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, "<p:bgPr>") || !strings.Contains(slide, "a:gradFill") {
+		t.Errorf("expected p:bgPr with a:gradFill, got %s", slide)
+	}
+}
+
 func TestParagraph_ColorSchemeEmitsSchemeClr(t *testing.T) {
 	p := New()
 	s := p.AddSlide()
@@ -1142,6 +1264,165 @@ func TestTable_RowHeightOutOfRangeAccumulatesErrorInsteadOfPanicking(t *testing.
 
 	if err := p.Save(&bytes.Buffer{}); err == nil {
 		t.Fatal("expected Save to return the accumulated out-of-range row error")
+	}
+}
+
+func TestTable_MergeCells2x2EncodesAnchorTopLeftAndInteriorRoles(t *testing.T) {
+	// Ground truth extracted from a real merged table (a python-pptx-
+	// generated file, confirmed against the OpenXML SDK validator): the
+	// four cell roles in a rectangular merge each get a distinct attribute
+	// combination, not just a uniform hMerge/vMerge on every non-anchor cell.
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 2, Inches(1), Inches(1), Inches(4), Inches(4))
+	for r := 0; r < 2; r++ {
+		for c := 0; c < 2; c++ {
+			tbl.Cell(r, c).Text("x")
+		}
+	}
+	tbl.MergeCells(0, 0, 1, 1)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	for _, want := range []string{
+		`<a:tc gridSpan="2" rowSpan="2">`, // anchor (0,0)
+		`<a:tc rowSpan="2" hMerge="1">`,   // top row, non-anchor col (0,1)
+		`<a:tc gridSpan="2" vMerge="1">`,  // left col, non-anchor row (1,0)
+		`<a:tc hMerge="1" vMerge="1">`,    // interior/corner (1,1)
+	} {
+		if !strings.Contains(slide, want) {
+			t.Errorf("expected %q in merged table XML, got %s", want, slide)
+		}
+	}
+}
+
+func TestTable_MergeCellsHorizontalOnlyOmitsRowSpan(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(1, 3, Inches(1), Inches(1), Inches(6), Inches(1))
+	for c := 0; c < 3; c++ {
+		tbl.Cell(0, c).Text("x")
+	}
+	tbl.MergeCells(0, 0, 0, 1)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:tc gridSpan="2">`) {
+		t.Errorf("expected anchor with gridSpan=2 and no rowSpan, got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:tc hMerge="1">`) {
+		t.Errorf("expected continuation cell with bare hMerge, got %s", slide)
+	}
+	if strings.Contains(slide, "rowSpan") {
+		t.Errorf("expected no rowSpan for a purely horizontal merge, got %s", slide)
+	}
+}
+
+func TestTable_MergeCellsVerticalOnlyOmitsGridSpan(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(3, 1, Inches(1), Inches(1), Inches(2), Inches(3))
+	for r := 0; r < 3; r++ {
+		tbl.Cell(r, 0).Text("x")
+	}
+	tbl.MergeCells(0, 0, 1, 0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:tc rowSpan="2">`) {
+		t.Errorf("expected anchor with rowSpan=2 and no gridSpan, got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:tc vMerge="1">`) {
+		t.Errorf("expected continuation cell with bare vMerge, got %s", slide)
+	}
+	if strings.Contains(slide, "gridSpan") {
+		t.Errorf("expected no gridSpan for a purely vertical merge, got %s", slide)
+	}
+}
+
+func TestTable_MergeCellsEveryRowKeepsCellCountMatchingGrid(t *testing.T) {
+	// PowerPoint treats a row whose <a:tc> count disagrees with
+	// a:tblGrid's column count as corrupt — merging must never delete a
+	// cell, only mark it.
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(3, 3, Inches(1), Inches(1), Inches(6), Inches(3))
+	tbl.MergeCells(0, 0, 1, 1)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if strings.Count(slide, "<a:tc ")+strings.Count(slide, "<a:tc>") != 9 {
+		t.Errorf("expected all 9 <a:tc> elements to remain present after merging, got %s", slide)
+	}
+}
+
+func TestTable_MergeCellsOutOfRangeAccumulatesErrorInsteadOfPanicking(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 2, Inches(1), Inches(1), Inches(4), Inches(2))
+
+	tbl.MergeCells(0, 0, 5, 5)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated out-of-range merge error")
+	}
+}
+
+func TestTable_MergeCellsOverlapAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(3, 3, Inches(1), Inches(1), Inches(6), Inches(3))
+	tbl.MergeCells(0, 0, 1, 1)
+	tbl.MergeCells(1, 1, 2, 2) // overlaps the first merge's interior cell (1,1)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated overlapping-merge error")
+	}
+}
+
+func TestTable_MergeCellsTransfersPopulatedNonAnchorCellContent(t *testing.T) {
+	// PowerPoint renders only the anchor's own content for a merged region
+	// -- text entered in a non-anchor cell before merging must survive by
+	// being folded into the anchor, not silently orphaned on a cell that
+	// PowerPoint will never render.
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 2, Inches(1), Inches(1), Inches(4), Inches(4))
+	tbl.Cell(0, 0).Text("Anchor")
+	tbl.Cell(0, 1).Text("TopRight")
+	tbl.Cell(1, 0).Text("BottomLeft")
+	tbl.Cell(1, 1).Text("BottomRight")
+
+	tbl.MergeCells(0, 0, 1, 1)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	for _, want := range []string{"Anchor", "TopRight", "BottomLeft", "BottomRight"} {
+		if !strings.Contains(slide, want) {
+			t.Errorf("expected merged content to retain %q, got %s", want, slide)
+		}
+	}
+}
+
+func TestTable_MergeCellsLeavesUnpopulatedNonAnchorCellsEmpty(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 2, Inches(1), Inches(1), Inches(4), Inches(4))
+	tbl.Cell(0, 0).Text("Anchor")
+	// (0,1), (1,0), (1,1) intentionally left unpopulated.
+
+	tbl.MergeCells(0, 0, 1, 1)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if strings.Count(slide, "<a:r>") != 1 {
+		t.Errorf("expected exactly 1 run (the anchor's own, no spurious empty runs transferred), got %s", slide)
 	}
 }
 

@@ -58,6 +58,7 @@ func (sr *ShapeRef) AddParagraph() *Paragraph {
 // Fill sets the shape's background to a solid color.
 func (sr *ShapeRef) Fill(c drawingml.Color) *ShapeRef {
 	sr.spPr.NoFill = nil
+	sr.spPr.Gradient = nil
 	sr.spPr.Fill = drawingml.NewSolidFillRGB(c)
 	return sr
 }
@@ -66,7 +67,25 @@ func (sr *ShapeRef) Fill(c drawingml.Color) *ShapeRef {
 // scheme slot (e.g. SchemeAccent1) rather than an explicit RGB value.
 func (sr *ShapeRef) FillScheme(scheme SchemeColor) *ShapeRef {
 	sr.spPr.NoFill = nil
+	sr.spPr.Gradient = nil
 	sr.spPr.Fill = drawingml.NewSolidFillScheme(string(scheme))
+	return sr
+}
+
+// GradientFill sets the shape's background to a linear gradient blending
+// through the given color stops (at least 2 required — the schema's own
+// minimum), its axis rotated by angleDegrees clockwise (the same convention
+// as Rotation: 0 runs left-to-right, 90 top-to-bottom). An invalid angle or
+// an out-of-range stop is recorded as an error on the presentation
+// (returned by Save) and leaves the fill unset.
+func (sr *ShapeRef) GradientFill(angleDegrees float64, stops ...GradientStop) *ShapeRef {
+	g, ok := newGradFill(sr.pres, angleDegrees, stops)
+	if !ok {
+		return sr
+	}
+	sr.spPr.Fill = nil
+	sr.spPr.NoFill = nil
+	sr.spPr.Gradient = g
 	return sr
 }
 
@@ -74,6 +93,7 @@ func (sr *ShapeRef) FillScheme(scheme SchemeColor) *ShapeRef {
 // Fill, which lets the shape inherit one from its style or layout instead.
 func (sr *ShapeRef) NoFill() *ShapeRef {
 	sr.spPr.Fill = nil
+	sr.spPr.Gradient = nil
 	sr.spPr.NoFill = &drawingml.NoFill{}
 	return sr
 }
@@ -92,6 +112,26 @@ func (sr *ShapeRef) Border(c drawingml.Color, widthPoints float64) *ShapeRef {
 // Border for the width's valid range.
 func (sr *ShapeRef) BorderScheme(scheme SchemeColor, widthPoints float64) *ShapeRef {
 	sr.spPr.Ln = newLnScheme(sr.pres, scheme, widthPoints)
+	return sr
+}
+
+// BorderDash sets the shape's outline to a preset dash pattern (e.g.
+// DashDash, DashSysDot). Border or BorderScheme must be called first to give
+// the shape an outline to dash — calling BorderDash before either records an
+// error on the presentation (returned by Save) instead of silently no-oping,
+// the same contract requireXfrm gives Rotation/FlipH/FlipV. An unrecognized
+// preset is likewise recorded as an error and leaves the dash pattern unset.
+func (sr *ShapeRef) BorderDash(style DashStyle) *ShapeRef {
+	if sr.spPr.Ln == nil {
+		sr.pres.addErr(errors.InvalidArgument("BorderDash", "shape", "no outline",
+			"Border or BorderScheme must be called before BorderDash"))
+		return sr
+	}
+	if !IsValidDashStyle(style) {
+		sr.pres.addErr(errors.InvalidArgument("BorderDash", "style", style, "not a valid ST_PresetLineDashVal"))
+		return sr
+	}
+	sr.spPr.Ln.PrstDash = &drawingml.PrstDash{Val: string(style)}
 	return sr
 }
 
@@ -248,6 +288,60 @@ func validatedLineWidthEMU(pres *Presentation, widthPoints float64) (emu int, ok
 		return 0, false
 	}
 	return int(math.Round(widthPoints * drawingml.EMUsPerPoint)), true
+}
+
+// newGradFill builds a linear a:gradFill from an angle in degrees clockwise
+// (the same convention as Rotation, converted to 60,000ths of a degree with
+// math.Round — truncating risks landing on the wrong 60,000th, the same
+// class of float64 precision issue Rotation and validatedLineWidthEMU
+// already guard against) and a list of color stops, shared by
+// ShapeRef.GradientFill and Slide.BackgroundGradient. Requires at least 2
+// stops (CT_GradientStopList's own schema minimum) and each stop's Pos
+// within [0, 100]; a finite-but-invalid angle, too few stops, or an
+// out-of-range stop is recorded as an error on pres and this returns
+// ok=false, leaving the caller's fill unset.
+func newGradFill(pres *Presentation, angleDegrees float64, stops []GradientStop) (g *drawingml.GradFill, ok bool) {
+	if math.IsNaN(angleDegrees) || math.IsInf(angleDegrees, 0) {
+		pres.addErr(errors.InvalidArgument("GradientFill", "angleDegrees", angleDegrees, "must be a finite number"))
+		return nil, false
+	}
+	if len(stops) < 2 {
+		pres.addErr(errors.InvalidArgument("GradientFill", "stops", len(stops), "a gradient needs at least 2 color stops"))
+		return nil, false
+	}
+
+	gs := make([]*drawingml.Gs, len(stops))
+	for i, s := range stops {
+		if math.IsNaN(s.Pos) || math.IsInf(s.Pos, 0) || s.Pos < 0 || s.Pos > 100 {
+			pres.addErr(errors.InvalidArgument("GradientFill", "stops[].Pos", s.Pos, "must be in [0, 100]"))
+			return nil, false
+		}
+		gs[i] = &drawingml.Gs{Pos: int(math.Round(s.Pos * 1000)), SrgbClr: &drawingml.SrgbClr{Val: drawingml.ToHex(s.Color)}}
+	}
+
+	// a:lin/@ang is ST_PositiveFixedAngle — schema-constrained to
+	// [0, 21600000), unlike a:xfrm/@rot (ST_Angle, Rotation's own target),
+	// which is a signed type where a negative value is valid. A plain
+	// math.Mod(angleDegrees, 360) returns a negative result for a negative
+	// input (e.g. -45), so the result is normalized into [0, 360) with a
+	// second Mod before the 60,000ths-of-a-degree conversion — Rotation
+	// itself must NOT get this same treatment, since ST_Angle's negative
+	// values are schema-valid and semantically meaningful there.
+	//
+	// The final "% fullTurn60000" guards the EXCLUSIVE upper bound: an angle
+	// in the top ~0.0000083° (normalizedAngle just under 360) rounds up to
+	// exactly 21600000, which ST_PositiveFixedAngle's half-open range
+	// [0, 21600000) rejects. 21600000 sixty-thousandths is 360° — the same
+	// direction as 0° — so folding it back to 0 keeps the angle in range
+	// with no visible change.
+	const fullTurn60000 = 21600000 // 360° in 60,000ths of a degree
+	normalizedAngle := math.Mod(math.Mod(angleDegrees, 360)+360, 360)
+	ang := int(math.Round(normalizedAngle*60000)) % fullTurn60000
+	return &drawingml.GradFill{
+		RotWithShape: true,
+		GsLst:        &drawingml.GsLst{Gs: gs},
+		Lin:          &drawingml.Lin{Ang: ang},
+	}, true
 }
 
 // Paragraph is a handle onto a single a:p, returned by TextBox.AddParagraph.

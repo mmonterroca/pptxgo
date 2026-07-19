@@ -25,6 +25,8 @@ SOFTWARE.
 package pptx
 
 import (
+	"encoding/xml"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -58,9 +60,10 @@ func TestNvPr_WithoutPh_MarshalsEmpty(t *testing.T) {
 	}
 }
 
-func TestLvl1PPr_MarshalsAttrsBuFontBuCharDefRPrInOrder(t *testing.T) {
+func TestLvlPPr_MarshalsAttrsBuFontBuCharDefRPrInOrder(t *testing.T) {
 	marL, indent := bodyBulletMarL, bodyBulletIndent
-	xmlStr := marshal(t, &Lvl1PPr{
+	xmlStr := marshal(t, &LvlPPr{
+		Level:  1,
 		MarL:   &marL,
 		Indent: &indent,
 		BuFont: &drawingml.BuFont{Typeface: "Arial"},
@@ -68,6 +71,9 @@ func TestLvl1PPr_MarshalsAttrsBuFontBuCharDefRPrInOrder(t *testing.T) {
 		DefRPr: &DefRPr{Sz: 3200},
 	})
 
+	if !strings.Contains(xmlStr, "<a:lvl1pPr ") {
+		t.Errorf("expected a:lvl1pPr element name from Level=1, got %s", xmlStr)
+	}
 	if !strings.Contains(xmlStr, `marL="342900"`) || !strings.Contains(xmlStr, `indent="-342900"`) {
 		t.Errorf("expected marL/indent attrs, got %s", xmlStr)
 	}
@@ -76,6 +82,27 @@ func TestLvl1PPr_MarshalsAttrsBuFontBuCharDefRPrInOrder(t *testing.T) {
 	defRPrIdx := strings.Index(xmlStr, "<a:defRPr")
 	if !(buFontIdx >= 0 && buCharIdx >= 0 && defRPrIdx >= 0 && buFontIdx < buCharIdx && buCharIdx < defRPrIdx) {
 		t.Errorf("expected buFont < buChar < defRPr, got %s", xmlStr)
+	}
+}
+
+func TestLvlPPr_MarshalsElementNamePerLevel(t *testing.T) {
+	for _, lvl := range []int{1, 2, 5, 9} {
+		xmlStr := marshal(t, &LvlPPr{Level: lvl, DefRPr: &DefRPr{Sz: 1800}})
+		want := fmt.Sprintf("<a:lvl%dpPr>", lvl)
+		if !strings.Contains(xmlStr, want) {
+			t.Errorf("Level=%d: expected %s, got %s", lvl, want, xmlStr)
+		}
+	}
+}
+
+func TestLvlPPr_OutOfRangeLevelIsAMarshalError(t *testing.T) {
+	// The exported LvlPPr lost the old fixed-XMLName guarantee, so an
+	// out-of-range Level (0 from the zero value, or 10+) must error at
+	// marshal time rather than emit a schema-invalid <a:lvl0pPr>/<a:lvl10pPr>.
+	for _, lvl := range []int{0, 10, -1} {
+		if _, err := xml.Marshal(&LvlPPr{Level: lvl, DefRPr: &DefRPr{Sz: 1800}}); err == nil {
+			t.Errorf("Level=%d: expected a marshal error for an out-of-schema level, got nil", lvl)
+		}
 	}
 }
 
@@ -113,6 +140,61 @@ func TestNew_MasterHasTitleAndBodyPlaceholders(t *testing.T) {
 	titleTxBodyIdx := strings.Index(master[titleIdx:], "<p:txBody>")
 	if !(titleSpPrIdx >= 0 && titleTxBodyIdx >= 0 && titleSpPrIdx < titleTxBodyIdx) {
 		t.Errorf("title placeholder shape did not marshal nvSpPr < spPr < txBody, got %s", master)
+	}
+}
+
+func TestNew_MasterBodyStyleHasAllNineLevels(t *testing.T) {
+	files := generate(t)
+	master := string(files["ppt/slideMasters/slideMaster1.xml"])
+
+	bodyStyleIdx := strings.Index(master, "<p:bodyStyle>")
+	bodyStyleEnd := strings.Index(master, "</p:bodyStyle>")
+	if bodyStyleIdx < 0 || bodyStyleEnd < 0 {
+		t.Fatalf("master missing p:bodyStyle, got %s", master)
+	}
+	bodyStyle := master[bodyStyleIdx:bodyStyleEnd]
+
+	prevIdx := -1
+	for lvl := 1; lvl <= 9; lvl++ {
+		want := fmt.Sprintf("<a:lvl%dpPr", lvl)
+		idx := strings.Index(bodyStyle, want)
+		if idx < 0 {
+			t.Fatalf("missing %s in bodyStyle, got %s", want, bodyStyle)
+		}
+		if idx < prevIdx {
+			t.Errorf("expected levels in ascending order, %s appeared before the previous level", want)
+		}
+		prevIdx = idx
+	}
+	// titleStyle/otherStyle only need their first level.
+	titleStyleIdx := strings.Index(master, "<p:titleStyle>")
+	titleStyleEnd := strings.Index(master, "</p:titleStyle>")
+	titleStyle := master[titleStyleIdx:titleStyleEnd]
+	if strings.Contains(titleStyle, "lvl2pPr") {
+		t.Errorf("expected titleStyle to keep only its first level, got %s", titleStyle)
+	}
+}
+
+func TestNew_MasterBodyStyleLevelsIncreaseIndentAndAlternateGlyph(t *testing.T) {
+	files := generate(t)
+	master := string(files["ppt/slideMasters/slideMaster1.xml"])
+
+	if !strings.Contains(master, `<a:lvl1pPr marL="342900" indent="-342900">`) {
+		t.Errorf("expected level 1 marL=342900, got %s", master)
+	}
+	if !strings.Contains(master, `<a:lvl2pPr marL="685800" indent="-342900">`) {
+		t.Errorf("expected level 2 marL=685800 (double level 1's), got %s", master)
+	}
+	lvl1Idx := strings.Index(master, "<a:lvl1pPr")
+	lvl2Idx := strings.Index(master, "<a:lvl2pPr")
+	bullet1 := master[lvl1Idx:lvl2Idx]
+	if !strings.Contains(bullet1, `<a:buChar char="•">`) {
+		t.Errorf("expected level 1 bullet glyph •, got %s", bullet1)
+	}
+	lvl3Idx := strings.Index(master, "<a:lvl3pPr")
+	bullet2 := master[lvl2Idx:lvl3Idx]
+	if !strings.Contains(bullet2, `<a:buChar char="–">`) {
+		t.Errorf("expected level 2 bullet glyph – (alternating from level 1), got %s", bullet2)
 	}
 }
 

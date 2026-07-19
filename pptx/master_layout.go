@@ -26,8 +26,10 @@ package pptx
 
 import (
 	"encoding/xml"
+	"fmt"
 
 	"github.com/mmonterroca/pptxgo/drawingml"
+	"github.com/mmonterroca/pptxgo/pkg/errors"
 )
 
 // XMLSlideMaster represents ppt/slideMasters/slideMaster1.xml (p:sldMaster).
@@ -106,32 +108,88 @@ type TxStyles struct {
 	OtherStyle *TextStyle `xml:"p:otherStyle"`
 }
 
-// TextStyle wraps a single cascading paragraph-level style definition. It
-// deliberately has no XMLName field: TxStyles reuses this one type for
-// p:titleStyle, p:bodyStyle, and p:otherStyle, and an XMLName field on the
-// child would override the parent field's tag and force the same element
-// name onto all three.
+// TextStyle wraps a cascading paragraph-level style definition, one LvlPPr
+// per indentation level it defines (1-9; Paragraph.Level(0) through
+// Level(8) select among them, 0-indexed there vs. 1-indexed in the OOXML
+// element names). It deliberately has no XMLName field and instead
+// implements MarshalXML: TxStyles reuses this one type for p:titleStyle,
+// p:bodyStyle, and p:otherStyle (an XMLName field on the child would
+// override the parent field's tag and force the same element name onto all
+// three, the same reuse trap LvlPPr documents one level down), and each
+// entry in Levels needs ITS OWN element name (a:lvl1pPr, a:lvl2pPr, ...) —
+// something a single static field tag can't express either.
 type TextStyle struct {
-	Lvl1PPr *Lvl1PPr `xml:"a:lvl1pPr"`
+	Levels []*LvlPPr
 }
 
-// Lvl1PPr is a:lvl1pPr: the first (and, here, only) indentation level's
-// paragraph properties — the same content model as drawingml.PPr (both are
-// CT_TextParagraphProperties), but modeled as its own type: PPr's own
-// fixed XMLName ("a:pPr") would win over TxStyles' "a:lvl1pPr" field tag if
-// embedded directly, the same reuse trap Xfrm/GraphicFrameXfrm document,
-// and unlike a:pPr this element also carries a trailing a:defRPr with the
-// level's default run properties. Field order mirrors the schema: MarL/
-// Indent attrs, then BuFont ahead of the mutually-exclusive bullet group
-// (BuNone/BuChar), then DefRPr last.
-type Lvl1PPr struct {
-	XMLName xml.Name          `xml:"a:lvl1pPr"`
-	MarL    *int              `xml:"marL,attr,omitempty"`
-	Indent  *int              `xml:"indent,attr,omitempty"`
-	BuFont  *drawingml.BuFont `xml:"a:buFont,omitempty"`
-	BuNone  *drawingml.BuNone `xml:"a:buNone,omitempty"`
-	BuChar  *drawingml.BuChar `xml:"a:buChar,omitempty"`
-	DefRPr  *DefRPr           `xml:"a:defRPr"`
+// MarshalXML emits start (whatever name the parent's own field tag gave
+// this TextStyle — see the type doc) followed by each of Levels, each
+// self-naming via LvlPPr.MarshalXML.
+func (ts *TextStyle) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	if err := e.EncodeToken(start); err != nil {
+		return err
+	}
+	for _, lvl := range ts.Levels {
+		if err := e.Encode(lvl); err != nil {
+			return err
+		}
+	}
+	return e.EncodeToken(start.End())
+}
+
+// LvlPPr is a:lvl1pPr through a:lvl9pPr (selected by Level, 1-9) — the same
+// content model as drawingml.PPr (both are CT_TextParagraphProperties), but
+// modeled as its own type: PPr's own fixed XMLName ("a:pPr") would win over
+// a field tag if embedded directly, the same reuse trap TextStyle documents
+// one level up, and unlike a:pPr this element also carries a trailing
+// a:defRPr with the level's default run properties. A single type serves
+// all nine levels (rather than nine near-identical structs) via
+// MarshalXML choosing the element name from Level; field order within it
+// mirrors the schema: MarL/Indent attrs, then BuFont ahead of the
+// mutually-exclusive bullet group (BuNone/BuChar), then DefRPr last.
+type LvlPPr struct {
+	Level  int // 1-9; selects this level's element name — see MarshalXML
+	MarL   *int
+	Indent *int
+	BuFont *drawingml.BuFont
+	BuNone *drawingml.BuNone
+	BuChar *drawingml.BuChar
+	DefRPr *DefRPr
+}
+
+// lvlPPrContent mirrors LvlPPr's field set (minus Level, which selects the
+// element name rather than being marshaled itself) under fixed tags, so
+// MarshalXML can delegate the actual attribute/child encoding to the
+// standard encoding/xml struct-tag walk instead of hand-writing token
+// output.
+type lvlPPrContent struct {
+	MarL   *int              `xml:"marL,attr,omitempty"`
+	Indent *int              `xml:"indent,attr,omitempty"`
+	BuFont *drawingml.BuFont `xml:"a:buFont,omitempty"`
+	BuNone *drawingml.BuNone `xml:"a:buNone,omitempty"`
+	BuChar *drawingml.BuChar `xml:"a:buChar,omitempty"`
+	DefRPr *DefRPr           `xml:"a:defRPr"`
+}
+
+// MarshalXML implements xml.Marshaler, naming the element a:lvl<Level>pPr.
+// It rejects a Level outside 1-9 with an error rather than emitting an
+// out-of-schema element name: the old fixed-XMLName Lvl1PPr made an invalid
+// name structurally impossible, and since LvlPPr/TextStyle.Levels are
+// exported (a caller can build a &LvlPPr{} directly, e.g. omitting Level so
+// it defaults to 0, or setting 10+), that guarantee is re-established here.
+// The error surfaces at Save time — pptxgo's own newBodyLevels/
+// NewDefaultTxStyles always set Level in range, so this only fires on
+// caller-constructed styles.
+func (l *LvlPPr) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	if l.Level < 1 || l.Level > 9 {
+		return errors.InvalidArgument("LvlPPr.MarshalXML", "Level", l.Level, "must be between 1 and 9 (a:lvl1pPr through a:lvl9pPr)")
+	}
+	start.Name = xml.Name{Local: fmt.Sprintf("a:lvl%dpPr", l.Level)}
+	return e.EncodeElement(&lvlPPrContent{
+		MarL: l.MarL, Indent: l.Indent,
+		BuFont: l.BuFont, BuNone: l.BuNone, BuChar: l.BuChar,
+		DefRPr: l.DefRPr,
+	}, start)
 }
 
 // DefRPr is a:defRPr: default run (character) properties for a paragraph level.
@@ -142,31 +200,68 @@ type DefRPr struct {
 
 // bodyBulletMarL and bodyBulletIndent are the conventional level-1 hanging
 // indent for a bulleted body placeholder, in EMUs (0.375in each): the
-// bullet glyph sits at MarL+Indent (0) and wrapped text at MarL.
+// bullet glyph sits at MarL+Indent (0) and wrapped text at MarL. Deeper
+// levels (see newBodyLevels) grow MarL by this same increment per level,
+// keeping Indent constant — only the base indent grows, not the hanging
+// gap between the bullet glyph and its text.
 const (
 	bodyBulletMarL   = 342900
 	bodyBulletIndent = -342900
 )
 
-// NewDefaultTxStyles returns a minimal title/body/other text style set with
-// conventional default sizes (44pt title, 32pt body, 18pt other). The body
-// style also carries a level-1 bullet default (a round "•" in Arial) so a
-// body placeholder's paragraphs pick up a bullet automatically unless they
-// set their own (Paragraph.Bullet/NumberedBullet) or explicitly suppress it
-// (Paragraph.NoBullet) — pptxgo's txBody always emits its own a:lstStyle
-// empty, so nothing on the placeholder itself overrides this cascade.
-func NewDefaultTxStyles() *TxStyles {
-	marL, indent := bodyBulletMarL, bodyBulletIndent
-	return &TxStyles{
-		TitleStyle: &TextStyle{Lvl1PPr: &Lvl1PPr{DefRPr: &DefRPr{Sz: 4400}}},
-		BodyStyle: &TextStyle{Lvl1PPr: &Lvl1PPr{
+// bodyLevelCount is how many of the schema's 9 available levels
+// newBodyLevels populates — every level Paragraph.Level(0..8) can select.
+const bodyLevelCount = 9
+
+// bodyBulletGlyphs cycles the bullet character used at each body level,
+// alternating "•"/"–" the way PowerPoint's own built-in themes do, so nine
+// levels of nested bullets stay visually distinguishable from their parent.
+var bodyBulletGlyphs = [bodyLevelCount]string{"•", "–", "•", "–", "•", "–", "•", "–", "•"}
+
+// bodyLevelSizes is the default font size (hundredths of a point) per body
+// level. Deeper levels shrink and then plateau, mirroring how PowerPoint's
+// own built-in themes de-emphasize nested content — a flat size across all
+// nine levels renders a Level(8) sub-bullet as large as a top-level one,
+// defeating the visual hierarchy the indent and alternating glyphs
+// establish. Level 1 stays 32pt (the body style's headline default the
+// title/other styles are sized against).
+var bodyLevelSizes = [bodyLevelCount]int{3200, 2800, 2400, 2000, 2000, 1800, 1800, 1800, 1800}
+
+// newBodyLevels returns bodyLevelCount LvlPPr entries (levels 1-9) for the
+// body style's bullet cascade — see NewDefaultTxStyles.
+func newBodyLevels() []*LvlPPr {
+	levels := make([]*LvlPPr, bodyLevelCount)
+	for i := range levels {
+		marL := bodyBulletMarL * (i + 1)
+		indent := bodyBulletIndent
+		levels[i] = &LvlPPr{
+			Level:  i + 1,
 			MarL:   &marL,
 			Indent: &indent,
 			BuFont: &drawingml.BuFont{Typeface: "Arial"},
-			BuChar: &drawingml.BuChar{Char: "•"},
-			DefRPr: &DefRPr{Sz: 3200},
-		}},
-		OtherStyle: &TextStyle{Lvl1PPr: &Lvl1PPr{DefRPr: &DefRPr{Sz: 1800}}},
+			BuChar: &drawingml.BuChar{Char: bodyBulletGlyphs[i]},
+			DefRPr: &DefRPr{Sz: bodyLevelSizes[i]},
+		}
+	}
+	return levels
+}
+
+// NewDefaultTxStyles returns a minimal title/body/other text style set with
+// conventional default sizes (44pt title, 32pt body, 18pt other). The body
+// style carries a bullet default (alternating "•"/"–" in Arial) across all
+// 9 levels so a body placeholder's paragraphs — at any Paragraph.Level(0..8)
+// — pick up a bullet and indent automatically unless they set their own
+// (Paragraph.Bullet/NumberedBullet) or explicitly suppress it
+// (Paragraph.NoBullet) — pptxgo's txBody always emits its own a:lstStyle
+// empty, so nothing on the placeholder itself overrides this cascade.
+// TitleStyle/OtherStyle keep just their first level: pptxgo never applies a
+// Level to a title or "other" placeholder's paragraphs, so levels 2-9
+// would go unused there.
+func NewDefaultTxStyles() *TxStyles {
+	return &TxStyles{
+		TitleStyle: &TextStyle{Levels: []*LvlPPr{{Level: 1, DefRPr: &DefRPr{Sz: 4400}}}},
+		BodyStyle:  &TextStyle{Levels: newBodyLevels()},
+		OtherStyle: &TextStyle{Levels: []*LvlPPr{{Level: 1, DefRPr: &DefRPr{Sz: 1800}}}},
 	}
 }
 

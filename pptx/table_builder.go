@@ -101,6 +101,119 @@ func (t *Table) RowHeight(row, heightEMU int) *Table {
 	return t
 }
 
+// MergeCells merges the rectangular region of cells from (fromRow, fromCol)
+// to (toRow, toCol), inclusive, both 0-indexed. The encoding follows the
+// convention real PowerPoint-authored files use (extracted from a
+// python-pptx-generated table and confirmed against the OpenXML SDK
+// validator, not hand-derived from the schema alone) — a schema-valid but
+// wrong encoding passes validation yet gets silently "repaired" by
+// PowerPoint on open:
+//
+//   - The region never loses a <a:tc>: every cell stays in its row so each
+//     row's cell count keeps matching a:tblGrid's column count, which
+//     PowerPoint treats as corrupt if it disagrees.
+//   - The anchor (fromRow, fromCol) carries GridSpan/RowSpan (only set when
+//     greater than 1 — the schema's implicit default).
+//   - A cell in the anchor's row but a later column also carries RowSpan
+//     (it heads its own column's vertical span within the region) plus
+//     HMerge.
+//   - A cell in the anchor's column but a later row also carries GridSpan
+//     (it heads its own row's horizontal span within the region) plus
+//     VMerge.
+//   - Every other (interior/corner) cell carries only HMerge and VMerge.
+//
+// An out-of-range or inverted (from > to) region, or one overlapping a cell
+// already part of another merge, is recorded as an error on the
+// presentation (returned by Save) and leaves the table unchanged.
+//
+// PowerPoint itself renders only the anchor cell's own content for a merged
+// region — a non-anchor cell's txBody, even though the XML still carries
+// it, never appears on the rendered slide. Populating a cell with
+// Cell(...).Text(...) before merging it away is a natural call order (see
+// examples/01_basic), so MergeCells transfers any non-anchor cell's
+// existing paragraphs into the anchor (appended, in row-major order, after
+// the anchor's own) rather than silently discarding them — the same
+// mark-don't-delete principle the merge encoding itself follows.
+//
+// Because that transfer APPENDS, and Cell(...).Text is itself
+// AddParagraph().Text (also an append), re-labeling a merged region built
+// from already-populated cells stacks the old and new paragraphs. To make
+// a merged cell read as a single fresh label, either merge the cells while
+// the region is still empty and set the anchor's text afterward (what
+// examples/01_basic's Total row does), or populate only the anchor before
+// merging.
+func (t *Table) MergeCells(fromRow, fromCol, toRow, toCol int) *Table {
+	if fromRow < 0 || fromCol < 0 || toRow >= len(t.tbl.Trs) || fromRow > toRow {
+		t.pres.addErr(errors.InvalidArgument("Table.MergeCells", "fromRow/toRow", []int{fromRow, toRow}, "out of range or inverted for this table's row count"))
+		return t
+	}
+	if toCol >= len(t.tbl.TblGrid.GridCol) || fromCol > toCol {
+		t.pres.addErr(errors.InvalidArgument("Table.MergeCells", "fromCol/toCol", []int{fromCol, toCol}, "out of range or inverted for this table's column count"))
+		return t
+	}
+
+	for r := fromRow; r <= toRow; r++ {
+		for c := fromCol; c <= toCol; c++ {
+			tc := t.tbl.Trs[r].Tcs[c]
+			if tc.GridSpan > 1 || tc.RowSpan > 1 || tc.HMerge || tc.VMerge {
+				t.pres.addErr(errors.InvalidArgument("Table.MergeCells", "region", []int{fromRow, fromCol, toRow, toCol}, "overlaps a cell already part of another merge"))
+				return t
+			}
+		}
+	}
+
+	anchor := t.tbl.Trs[fromRow].Tcs[fromCol]
+	for r := fromRow; r <= toRow; r++ {
+		for c := fromCol; c <= toCol; c++ {
+			if r == fromRow && c == fromCol {
+				continue
+			}
+			tc := t.tbl.Trs[r].Tcs[c]
+			if tc.TxBody == nil || len(tc.TxBody.Paragraphs) == 0 {
+				continue
+			}
+			if anchor.TxBody == nil {
+				anchor.TxBody = drawingml.NewTextBody()
+			}
+			anchor.TxBody.Paragraphs = append(anchor.TxBody.Paragraphs, tc.TxBody.Paragraphs...)
+			tc.TxBody = drawingml.NewTextBody()
+		}
+	}
+
+	rowSpan := toRow - fromRow + 1
+	gridSpan := toCol - fromCol + 1
+
+	for r := fromRow; r <= toRow; r++ {
+		for c := fromCol; c <= toCol; c++ {
+			tc := t.tbl.Trs[r].Tcs[c]
+			switch {
+			case r == fromRow && c == fromCol:
+				if gridSpan > 1 {
+					tc.GridSpan = gridSpan
+				}
+				if rowSpan > 1 {
+					tc.RowSpan = rowSpan
+				}
+			case r == fromRow:
+				if rowSpan > 1 {
+					tc.RowSpan = rowSpan
+				}
+				tc.HMerge = true
+			case c == fromCol:
+				if gridSpan > 1 {
+					tc.GridSpan = gridSpan
+				}
+				tc.VMerge = true
+			default:
+				tc.HMerge = true
+				tc.VMerge = true
+			}
+		}
+	}
+
+	return t
+}
+
 // TableCell is a handle onto a single table cell (a:tc), returned by
 // Table.Cell.
 type TableCell struct {

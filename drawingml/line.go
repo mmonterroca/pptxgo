@@ -26,14 +26,24 @@ package drawingml
 
 import "encoding/xml"
 
-// Ln is a:ln (CT_LineProperties): a shape or picture's outline. Only width
-// and a solid-color fill are modeled — the schema's other line properties
-// (dash pattern, cap, join, head/tail decorations) are out of scope until a
-// caller needs them.
+// Ln is a:ln (CT_LineProperties): a shape or picture's outline. Width, a
+// solid-color fill, and a preset dash pattern are modeled — the schema's
+// remaining line properties (cap, join, head/tail decorations) are out of
+// scope until a caller needs them. Field order mirrors the schema: the fill
+// group (SolidFill here) precedes PrstDash.
 type Ln struct {
 	XMLName   xml.Name   `xml:"a:ln"`
 	W         int        `xml:"w,attr,omitempty"` // EMUs
 	SolidFill *SolidFill `xml:"a:solidFill,omitempty"`
+	PrstDash  *PrstDash  `xml:"a:prstDash,omitempty"`
+}
+
+// PrstDash is a:prstDash (CT_PresetLineDashProperties): a named dash pattern
+// for a line's outline, referencing one of ST_PresetLineDashVal's values
+// (e.g. "solid", "dash", "dot", "dashDot", "sysDash").
+type PrstDash struct {
+	XMLName xml.Name `xml:"a:prstDash"`
+	Val     string   `xml:"val,attr"`
 }
 
 // NewLn returns a solid-color outline of the given width in EMUs.
