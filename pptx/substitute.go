@@ -56,6 +56,7 @@ type runSpan struct {
 
 	hasT         bool   // whether this run has an <a:t> child at all (schema requires it; tolerated as absent defensively rather than erroring on a malformed run)
 	tStart, tEnd int64  // byte range of the FULL <a:t>...</a:t> (or self-closed <a:t/>) span, tags included — see substituteSlideText for why the edit unit is the whole element, not just its inner content
+	tPrefix      string // the source document's own prefix for the a:t element (RawToken's raw, unresolved Name.Space — see scanRuns), "" if it used the default namespace with no prefix at all; renderAT reuses this rather than hardcoding "a", since a valid foreign presentation could bind DrawingML to a different prefix
 	text         string // decoded (already XML-unescaped) text content of a:t
 
 	// groupBoundaryBefore is true when this run must NOT merge with the
@@ -120,6 +121,7 @@ func scanRuns(raw []byte) ([]*runSpan, error) {
 			case cur != nil && el.Name.Local == "t":
 				cur.hasT = true
 				cur.tStart = startOffset
+				cur.tPrefix = el.Name.Space
 				inT = true
 				curText.Reset()
 			case parent == "p" && el.Name.Local != "r":
@@ -227,9 +229,9 @@ func substituteSlideText(raw []byte, transform func(string) string) ([]byte, int
 		changed++
 
 		first := g.members[0]
-		edits = append(edits, edit{start: first.tStart, end: first.tEnd, replacement: renderAT(newText)})
+		edits = append(edits, edit{start: first.tStart, end: first.tEnd, replacement: renderAT(first.tPrefix, newText)})
 		for _, m := range g.members[1:] {
-			edits = append(edits, edit{start: m.tStart, end: m.tEnd, replacement: renderAT("")})
+			edits = append(edits, edit{start: m.tStart, end: m.tEnd, replacement: renderAT(m.tPrefix, "")})
 		}
 	}
 
@@ -251,18 +253,36 @@ func substituteSlideText(raw []byte, transform func(string) string) ([]byte, int
 	return out.Bytes(), changed, nil
 }
 
-// renderAT renders a fresh <a:t>...</a:t> element for text: XML-escaped,
-// and always carrying xml:space="preserve" regardless of whether text
-// itself has leading/trailing whitespace. Always adding it (rather than
-// only when text's edges need it) sidesteps a fragile per-case whitespace
-// check for one extra, harmless attribute — PowerPoint already preserves
-// a:t's internal whitespace verbatim as a DrawingML text-layout
-// convention, so a superfluous xml:space="preserve" changes nothing a
-// caller would observe.
-func renderAT(text string) []byte {
+// renderAT renders a fresh <prefix:t>...</prefix:t> element for text (or a
+// bare <t>...</t> if prefix is "" — the source used the default namespace
+// with no prefix at all): XML-escaped, and always carrying
+// xml:space="preserve" regardless of whether text itself has leading/
+// trailing whitespace. Always adding it (rather than only when text's
+// edges need it) sidesteps a fragile per-case whitespace check for one
+// extra, harmless attribute — PowerPoint already preserves a:t's internal
+// whitespace verbatim as a DrawingML text-layout convention, so a
+// superfluous xml:space="preserve" changes nothing a caller would observe.
+//
+// prefix is always the SOURCE document's own prefix for this specific a:t
+// (captured per-run in scanRuns), never hardcoded as "a" — a valid foreign
+// presentation could bind the DrawingML namespace to a different prefix
+// (or to the default namespace), and hardcoding "a:t" would silently
+// re-tag the rewritten element into an undeclared or wrong namespace,
+// corrupting the slide even though the bytes stay well-formed XML.
+func renderAT(prefix, text string) []byte {
 	var buf bytes.Buffer
-	buf.WriteString(`<a:t xml:space="preserve">`)
+	buf.WriteString("<")
+	if prefix != "" {
+		buf.WriteString(prefix)
+		buf.WriteString(":")
+	}
+	buf.WriteString(`t xml:space="preserve">`)
 	xml.EscapeText(&buf, []byte(text))
-	buf.WriteString(`</a:t>`)
+	buf.WriteString("</")
+	if prefix != "" {
+		buf.WriteString(prefix)
+		buf.WriteString(":")
+	}
+	buf.WriteString("t>")
 	return buf.Bytes()
 }

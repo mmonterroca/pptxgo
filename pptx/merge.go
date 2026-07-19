@@ -68,8 +68,40 @@ func WithStrictMode() MergeOption {
 // given delimiters, capturing key. The key is trimmed of surrounding
 // whitespace — "{{ name }}" and "{{name}}" both match "name", a common
 // real-world authoring habit worth tolerating rather than rejecting.
+//
+// The captured key excludes every distinct character actually used in open
+// and close (not a hardcoded "{}"), so custom delimiters get the same
+// protection the default braces have: without it, an unclosed placeholder
+// followed by a real one using the same delimiter characters — e.g.
+// "[[key1 ... [[key2]]" under WithDelimiters("[[", "]]") — would span both
+// and capture "key1 ... [[key2" as one bogus key instead of stopping at the
+// first close.
 func placeholderPattern(open, close string) *regexp.Regexp {
-	return regexp.MustCompile(regexp.QuoteMeta(open) + `\s*([^{}]+?)\s*` + regexp.QuoteMeta(close))
+	return regexp.MustCompile(regexp.QuoteMeta(open) + `\s*([^` + deduplicatedCharClass(open+close) + `]+?)\s*` + regexp.QuoteMeta(close))
+}
+
+// deduplicatedCharClass returns s's distinct runes, each escaped as needed
+// for safe use inside a regexp character class ([...]): "]", "^", "-", and
+// "\" are the only characters with special meaning inside a class, but all
+// four are escaped unconditionally (regardless of position) rather than
+// tracking the position-dependent RE2 rules for exactly when "^"/"-" are
+// literal — over-escaping a character that didn't strictly need it is
+// harmless, whereas under-escaping "]" would silently truncate the class.
+func deduplicatedCharClass(s string) string {
+	seen := make(map[rune]bool)
+	var b strings.Builder
+	for _, r := range s {
+		if seen[r] {
+			continue
+		}
+		seen[r] = true
+		switch r {
+		case '\\', ']', '^', '-':
+			b.WriteRune('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // Replace performs a literal (non-{{}}) substring replacement across every
@@ -178,9 +210,22 @@ func (s *OpenSlide) Merge(data MergeData, opts ...MergeOption) (int, error) {
 	return n, nil
 }
 
+// missingPlaceholdersErr reports each distinct missing key once. missing
+// naturally contains one entry per OCCURRENCE (a key repeated across
+// several slides, or several times on one slide, appends once per
+// occurrence — see mergeSlide), so it is deduplicated here rather than at
+// every append site.
 func missingPlaceholdersErr(missing []string) error {
-	sort.Strings(missing)
-	return errors.InvalidArgument("Merge", "data", missing, "placeholder(s) with no matching key: "+strings.Join(missing, ", "))
+	seen := make(map[string]bool, len(missing))
+	deduped := make([]string, 0, len(missing))
+	for _, m := range missing {
+		if !seen[m] {
+			seen[m] = true
+			deduped = append(deduped, m)
+		}
+	}
+	sort.Strings(deduped)
+	return errors.InvalidArgument("Merge", "data", deduped, "placeholder(s) with no matching key: "+strings.Join(deduped, ", "))
 }
 
 // mergeSlide applies pattern-based substitution to one slide's raw bytes,
@@ -203,15 +248,20 @@ func mergeSlide(raw []byte, pattern *regexp.Regexp, data MergeData, missing *[]s
 	return count, out, changed, err
 }
 
-// PlaceholderNames returns the distinct placeholder names (default
-// "{{key}}" delimiters) found anywhere across all slides, for inspecting
-// what a template expects before calling Merge. Reuses extractText
-// (open.go) rather than the run-grouping machinery above — finding names is
-// pure reading, and concatenating a:t content in document order already
-// heals a run-split pattern the same way Text() does, with no need to track
+// PlaceholderNames returns the distinct placeholder names found anywhere
+// across all slides, for inspecting what a template expects before calling
+// Merge. Delimiters default to "{{"/"}}", the same as Merge; pass
+// WithDelimiters here too if Merge will be called with a custom pair, so
+// PlaceholderNames reports what Merge will actually match (WithStrictMode
+// is accepted but has no effect — there is nothing to be strict about when
+// only listing names). Reuses extractText (open.go) rather than the
+// run-grouping machinery in substitute.go — finding names is pure reading,
+// and concatenating a:t content in document order already heals a
+// run-split pattern the same way Text() does, with no need to track
 // per-run byte spans for a read-only pass.
-func (t *Template) PlaceholderNames() ([]string, error) {
-	pattern := placeholderPattern("{{", "}}")
+func (t *Template) PlaceholderNames(opts ...MergeOption) ([]string, error) {
+	cfg := newMergeConfig(opts)
+	pattern := placeholderPattern(cfg.open, cfg.close)
 	seen := make(map[string]bool)
 
 	for _, pth := range t.slidePaths {

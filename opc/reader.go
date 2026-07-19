@@ -216,7 +216,11 @@ func readZipFile(f *zip.File) ([]byte, error) {
 	}
 	defer rc.Close()
 
+	// The zip entry's own header already declares its uncompressed size,
+	// so the destination buffer can be sized once up front instead of
+	// growing (and re-copying) repeatedly as io.Copy fills it.
 	var buf bytes.Buffer
+	buf.Grow(int(f.UncompressedSize64))
 	if _, err := io.Copy(&buf, rc); err != nil {
 		return nil, err
 	}

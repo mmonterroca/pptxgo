@@ -207,6 +207,67 @@ func TestSubstituteSlideText_DistinguishesATFromATblAndATc(t *testing.T) {
 	}
 }
 
+func TestSubstituteSlideText_PreservesANonStandardDrawingMLPrefix(t *testing.T) {
+	// Regression: a valid foreign presentation could bind the DrawingML
+	// namespace to a prefix other than the near-universal "a" (or even to
+	// the default namespace with none at all). Hardcoding "<a:t>" on
+	// rewrite would silently re-tag the element into an undeclared or
+	// wrong namespace on save.
+	xmlStr := `<p:sld xmlns:dml="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><dml:p>` +
+		`<dml:r><dml:rPr lang="en-US"/><dml:t>{{client_name}}</dml:t></dml:r>` +
+		`</dml:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`
+
+	out, changed, err := substituteSlideText([]byte(xmlStr), func(text string) string {
+		return strings.ReplaceAll(text, "{{client_name}}", "Acme Corp")
+	})
+	if err != nil {
+		t.Fatalf("substituteSlideText: %v", err)
+	}
+	if changed != 1 {
+		t.Fatalf("expected 1 changed group, got %d", changed)
+	}
+
+	got := string(out)
+	if !strings.Contains(got, "<dml:t") {
+		t.Errorf("expected the rewritten element to keep the source's own \"dml\" prefix, got %s", got)
+	}
+	if strings.Contains(got, "<a:t") {
+		t.Errorf("expected no hardcoded \"a:t\" when the source used a different prefix, got %s", got)
+	}
+	if !strings.Contains(got, "Acme Corp") {
+		t.Errorf("expected the substitution to still apply, got %s", got)
+	}
+
+	var v any
+	if err := xml.Unmarshal(out, &v); err != nil {
+		t.Fatalf("output is not well-formed XML: %v", err)
+	}
+}
+
+func TestSubstituteSlideText_PreservesTheDefaultNamespaceWithNoPrefix(t *testing.T) {
+	// The other end of the same spectrum: a source that binds DrawingML as
+	// the DEFAULT namespace (xmlns="...", no prefix at all) must get back
+	// a bare "<t>", not "<a:t>" or "<:t>".
+	xmlStr := `<sld xmlns="http://schemas.openxmlformats.org/drawingml/2006/main"><cSld><spTree><sp><txBody><p>` +
+		`<r><rPr lang="en-US"/><t>{{client_name}}</t></r>` +
+		`</p></txBody></sp></spTree></cSld></sld>`
+
+	out, changed, err := substituteSlideText([]byte(xmlStr), func(text string) string {
+		return strings.ReplaceAll(text, "{{client_name}}", "Acme Corp")
+	})
+	if err != nil {
+		t.Fatalf("substituteSlideText: %v", err)
+	}
+	if changed != 1 {
+		t.Fatalf("expected 1 changed group, got %d", changed)
+	}
+
+	got := string(out)
+	if !strings.Contains(got, `<t xml:space="preserve">Acme Corp</t>`) {
+		t.Errorf("expected a bare <t> element (default namespace, no prefix), got %s", got)
+	}
+}
+
 func TestScanRuns_CapturesSpansForTheHandCraftedFixture(t *testing.T) {
 	runs, err := scanRuns([]byte(splitPlaceholderSlideXML))
 	if err != nil {

@@ -122,6 +122,93 @@ func TestTemplate_MergeWithCustomDelimiters(t *testing.T) {
 	}
 }
 
+func TestTemplate_MergeWithBracketDelimitersDoesNotSpanAcrossAnUnclosedOne(t *testing.T) {
+	// Regression: a naive "[^{}]+?" excluded-char class doesn't protect
+	// custom delimiters at all. With "[["/"]]", an unclosed "[[key1" ahead
+	// of a real "[[key2]]" must not be captured as one bogus span
+	// ("key1 ... [[key2"); the closing "]]" must belong only to key2.
+	tmpl := openFixture(t, testdataSample)
+	s, err := tmpl.Slide(1)
+	if err != nil {
+		t.Fatalf("Slide(1): %v", err)
+	}
+	if _, err := s.Replace("{{client_name}}", "[[key1 leftover [[key2]]"); err != nil {
+		t.Fatalf("Replace (test setup): %v", err)
+	}
+
+	names, err := tmpl.PlaceholderNames(WithDelimiters("[[", "]]"))
+	if err != nil {
+		t.Fatalf("PlaceholderNames: %v", err)
+	}
+	if len(names) != 1 || names[0] != "key2" {
+		t.Errorf("PlaceholderNames() = %v, want exactly [\"key2\"] (not a span starting at key1)", names)
+	}
+}
+
+func TestTemplate_MergeStrictModeDeduplicatesRepeatedMissingKey(t *testing.T) {
+	tmpl := openFixture(t, testdataSample)
+	// contact_email appears once on slide 1; add a second occurrence on
+	// slide 2 so the same missing key would be recorded twice without
+	// deduplication.
+	s2, err := tmpl.Slide(2)
+	if err != nil {
+		t.Fatalf("Slide(2): %v", err)
+	}
+	if _, err := s2.Replace("Thank you", "Thanks {{contact_email}}"); err != nil {
+		t.Fatalf("Replace (test setup): %v", err)
+	}
+
+	_, err = tmpl.Merge(MergeData{"client_name": "Acme Corp"}, WithStrictMode())
+	if err == nil {
+		t.Fatal("expected an error for the unmatched contact_email placeholder")
+	}
+	// errors.InvalidArgument's own formatting embeds the value once via
+	// "value=..." and once again in this package's own message text, so
+	// the key name legitimately appears twice in the full error string
+	// even when correctly deduplicated — what a duplication BUG would
+	// additionally produce is the key repeated back-to-back within the
+	// comma-joined list itself ("contact_email, contact_email").
+	if msg := err.Error(); strings.Contains(msg, "contact_email, contact_email") {
+		t.Errorf("expected contact_email to appear only once in the joined missing-key list, got %q", msg)
+	}
+}
+
+func TestTemplate_PlaceholderNamesWithCustomDelimiters(t *testing.T) {
+	tmpl := openFixture(t, testdataSample)
+	s, err := tmpl.Slide(1)
+	if err != nil {
+		t.Fatalf("Slide(1): %v", err)
+	}
+	if _, err := s.Replace("{{client_name}}", "[[account]]"); err != nil {
+		t.Fatalf("Replace (test setup): %v", err)
+	}
+
+	// Default delimiters must not find the bracket-style token.
+	defaultNames, err := tmpl.PlaceholderNames()
+	if err != nil {
+		t.Fatalf("PlaceholderNames: %v", err)
+	}
+	for _, n := range defaultNames {
+		if n == "account" {
+			t.Errorf("expected default delimiters not to match a [[account]] token, got %v", defaultNames)
+		}
+	}
+
+	bracketNames, err := tmpl.PlaceholderNames(WithDelimiters("[[", "]]"))
+	if err != nil {
+		t.Fatalf("PlaceholderNames with custom delimiters: %v", err)
+	}
+	found := false
+	for _, n := range bracketNames {
+		if n == "account" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected PlaceholderNames(WithDelimiters(\"[[\", \"]]\")) to find \"account\", got %v", bracketNames)
+	}
+}
+
 func TestOpenSlide_MergeOnlyAffectsThatSlide(t *testing.T) {
 	tmpl := openFixture(t, testdataSample)
 	s1, err := tmpl.Slide(1)
