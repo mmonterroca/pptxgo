@@ -773,6 +773,27 @@ func TestShapeRef_GradientFillStopPosOutOfRangeAccumulatesError(t *testing.T) {
 	}
 }
 
+func TestShapeRef_GradientFillNegativeAngleNormalizesToPositiveRange(t *testing.T) {
+	// a:lin/@ang is ST_PositiveFixedAngle (schema range [0, 21600000)) --
+	// unlike Rotation's a:xfrm/@rot (ST_Angle, signed), a negative value
+	// here is schema-invalid, not just an unusual-but-legal one.
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		GradientFill(-45, GradientStop{Color: RGB(0xFF, 0, 0), Pos: 0}, GradientStop{Color: RGB(0, 0, 0xFF), Pos: 100})
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	// -45 normalized into [0, 360) is 315; 315 * 60000 = 18900000.
+	if !strings.Contains(slide, `<a:lin ang="18900000">`) {
+		t.Errorf("expected -45deg to normalize to 315deg (18900000 in 60,000ths), got %s", slide)
+	}
+	if strings.Contains(slide, `ang="-`) {
+		t.Errorf("expected no negative ang attribute (schema-invalid for ST_PositiveFixedAngle), got %s", slide)
+	}
+}
+
 func TestSlide_BackgroundGradientEmitsGradFillOnBgPr(t *testing.T) {
 	p := New()
 	s := p.AddSlide()
@@ -1340,6 +1361,48 @@ func TestTable_MergeCellsOverlapAccumulatesError(t *testing.T) {
 
 	if err := p.Save(&bytes.Buffer{}); err == nil {
 		t.Fatal("expected Save to return the accumulated overlapping-merge error")
+	}
+}
+
+func TestTable_MergeCellsTransfersPopulatedNonAnchorCellContent(t *testing.T) {
+	// PowerPoint renders only the anchor's own content for a merged region
+	// -- text entered in a non-anchor cell before merging must survive by
+	// being folded into the anchor, not silently orphaned on a cell that
+	// PowerPoint will never render.
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 2, Inches(1), Inches(1), Inches(4), Inches(4))
+	tbl.Cell(0, 0).Text("Anchor")
+	tbl.Cell(0, 1).Text("TopRight")
+	tbl.Cell(1, 0).Text("BottomLeft")
+	tbl.Cell(1, 1).Text("BottomRight")
+
+	tbl.MergeCells(0, 0, 1, 1)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	for _, want := range []string{"Anchor", "TopRight", "BottomLeft", "BottomRight"} {
+		if !strings.Contains(slide, want) {
+			t.Errorf("expected merged content to retain %q, got %s", want, slide)
+		}
+	}
+}
+
+func TestTable_MergeCellsLeavesUnpopulatedNonAnchorCellsEmpty(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(2, 2, Inches(1), Inches(1), Inches(4), Inches(4))
+	tbl.Cell(0, 0).Text("Anchor")
+	// (0,1), (1,0), (1,1) intentionally left unpopulated.
+
+	tbl.MergeCells(0, 0, 1, 1)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if strings.Count(slide, "<a:r>") != 1 {
+		t.Errorf("expected exactly 1 run (the anchor's own, no spurious empty runs transferred), got %s", slide)
 	}
 }
 

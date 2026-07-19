@@ -319,7 +319,16 @@ func newGradFill(pres *Presentation, angleDegrees float64, stops []GradientStop)
 		gs[i] = &drawingml.Gs{Pos: int(math.Round(s.Pos * 1000)), SrgbClr: &drawingml.SrgbClr{Val: drawingml.ToHex(s.Color)}}
 	}
 
-	ang := int(math.Round(math.Mod(angleDegrees, 360) * 60000))
+	// a:lin/@ang is ST_PositiveFixedAngle — schema-constrained to
+	// [0, 21600000), unlike a:xfrm/@rot (ST_Angle, Rotation's own target),
+	// which is a signed type where a negative value is valid. A plain
+	// math.Mod(angleDegrees, 360) returns a negative result for a negative
+	// input (e.g. -45), so the result is normalized into [0, 360) with a
+	// second Mod before the 60,000ths-of-a-degree conversion — Rotation
+	// itself must NOT get this same treatment, since ST_Angle's negative
+	// values are schema-valid and semantically meaningful there.
+	normalizedAngle := math.Mod(math.Mod(angleDegrees, 360)+360, 360)
+	ang := int(math.Round(normalizedAngle * 60000))
 	return &drawingml.GradFill{
 		RotWithShape: true,
 		GsLst:        &drawingml.GsLst{Gs: gs},

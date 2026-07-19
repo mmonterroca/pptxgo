@@ -125,6 +125,15 @@ func (t *Table) RowHeight(row, heightEMU int) *Table {
 // An out-of-range or inverted (from > to) region, or one overlapping a cell
 // already part of another merge, is recorded as an error on the
 // presentation (returned by Save) and leaves the table unchanged.
+//
+// PowerPoint itself renders only the anchor cell's own content for a merged
+// region — a non-anchor cell's txBody, even though the XML still carries
+// it, never appears on the rendered slide. Populating a cell with
+// Cell(...).Text(...) before merging it away is a natural call order (see
+// examples/01_basic), so MergeCells transfers any non-anchor cell's
+// existing paragraphs into the anchor (appended, in row-major order, after
+// the anchor's own) rather than silently discarding them — the same
+// mark-don't-delete principle the merge encoding itself follows.
 func (t *Table) MergeCells(fromRow, fromCol, toRow, toCol int) *Table {
 	if fromRow < 0 || fromCol < 0 || toRow >= len(t.tbl.Trs) || fromRow > toRow {
 		t.pres.addErr(errors.InvalidArgument("Table.MergeCells", "fromRow/toRow", []int{fromRow, toRow}, "out of range or inverted for this table's row count"))
@@ -142,6 +151,24 @@ func (t *Table) MergeCells(fromRow, fromCol, toRow, toCol int) *Table {
 				t.pres.addErr(errors.InvalidArgument("Table.MergeCells", "region", []int{fromRow, fromCol, toRow, toCol}, "overlaps a cell already part of another merge"))
 				return t
 			}
+		}
+	}
+
+	anchor := t.tbl.Trs[fromRow].Tcs[fromCol]
+	for r := fromRow; r <= toRow; r++ {
+		for c := fromCol; c <= toCol; c++ {
+			if r == fromRow && c == fromCol {
+				continue
+			}
+			tc := t.tbl.Trs[r].Tcs[c]
+			if tc.TxBody == nil || len(tc.TxBody.Paragraphs) == 0 {
+				continue
+			}
+			if anchor.TxBody == nil {
+				anchor.TxBody = drawingml.NewTextBody()
+			}
+			anchor.TxBody.Paragraphs = append(anchor.TxBody.Paragraphs, tc.TxBody.Paragraphs...)
+			tc.TxBody = drawingml.NewTextBody()
 		}
 	}
 
