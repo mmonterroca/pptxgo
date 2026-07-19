@@ -773,6 +773,26 @@ func TestShapeRef_GradientFillStopPosOutOfRangeAccumulatesError(t *testing.T) {
 	}
 }
 
+func TestShapeRef_GradientFillAngleNeverHitsExclusiveUpperBound(t *testing.T) {
+	// ST_PositiveFixedAngle is [0, 21600000) -- 21600000 (== 360deg) is the
+	// EXCLUSIVE max. An angle in the top ~0.0000083deg rounds up to exactly
+	// 21600000 without the fold-to-zero guard.
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		GradientFill(-0.000005, GradientStop{Color: RGB(0xFF, 0, 0), Pos: 0}, GradientStop{Color: RGB(0, 0, 0xFF), Pos: 100})
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if strings.Contains(slide, `ang="21600000"`) {
+		t.Errorf("expected the angle to fold 360deg back to 0 (21600000 is out of ST_PositiveFixedAngle's [0, 21600000) range), got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:lin ang="0">`) {
+		t.Errorf("expected -0.000005deg to normalize/fold to ang=0, got %s", slide)
+	}
+}
+
 func TestShapeRef_GradientFillNegativeAngleNormalizesToPositiveRange(t *testing.T) {
 	// a:lin/@ang is ST_PositiveFixedAngle (schema range [0, 21600000)) --
 	// unlike Rotation's a:xfrm/@rot (ST_Angle, signed), a negative value

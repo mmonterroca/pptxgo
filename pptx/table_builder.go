@@ -134,6 +134,14 @@ func (t *Table) RowHeight(row, heightEMU int) *Table {
 // existing paragraphs into the anchor (appended, in row-major order, after
 // the anchor's own) rather than silently discarding them — the same
 // mark-don't-delete principle the merge encoding itself follows.
+//
+// Because that transfer APPENDS, and Cell(...).Text is itself
+// AddParagraph().Text (also an append), re-labeling a merged region built
+// from already-populated cells stacks the old and new paragraphs. To make
+// a merged cell read as a single fresh label, either merge the cells while
+// the region is still empty and set the anchor's text afterward (what
+// examples/01_basic's Total row does), or populate only the anchor before
+// merging.
 func (t *Table) MergeCells(fromRow, fromCol, toRow, toCol int) *Table {
 	if fromRow < 0 || fromCol < 0 || toRow >= len(t.tbl.Trs) || fromRow > toRow {
 		t.pres.addErr(errors.InvalidArgument("Table.MergeCells", "fromRow/toRow", []int{fromRow, toRow}, "out of range or inverted for this table's row count"))

@@ -327,8 +327,16 @@ func newGradFill(pres *Presentation, angleDegrees float64, stops []GradientStop)
 	// second Mod before the 60,000ths-of-a-degree conversion — Rotation
 	// itself must NOT get this same treatment, since ST_Angle's negative
 	// values are schema-valid and semantically meaningful there.
+	//
+	// The final "% fullTurn60000" guards the EXCLUSIVE upper bound: an angle
+	// in the top ~0.0000083° (normalizedAngle just under 360) rounds up to
+	// exactly 21600000, which ST_PositiveFixedAngle's half-open range
+	// [0, 21600000) rejects. 21600000 sixty-thousandths is 360° — the same
+	// direction as 0° — so folding it back to 0 keeps the angle in range
+	// with no visible change.
+	const fullTurn60000 = 21600000 // 360° in 60,000ths of a degree
 	normalizedAngle := math.Mod(math.Mod(angleDegrees, 360)+360, 360)
-	ang := int(math.Round(normalizedAngle * 60000))
+	ang := int(math.Round(normalizedAngle*60000)) % fullTurn60000
 	return &drawingml.GradFill{
 		RotWithShape: true,
 		GsLst:        &drawingml.GsLst{Gs: gs},

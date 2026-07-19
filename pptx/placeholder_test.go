@@ -25,6 +25,7 @@ SOFTWARE.
 package pptx
 
 import (
+	"encoding/xml"
 	"fmt"
 	"strings"
 	"testing"
@@ -90,6 +91,17 @@ func TestLvlPPr_MarshalsElementNamePerLevel(t *testing.T) {
 		want := fmt.Sprintf("<a:lvl%dpPr>", lvl)
 		if !strings.Contains(xmlStr, want) {
 			t.Errorf("Level=%d: expected %s, got %s", lvl, want, xmlStr)
+		}
+	}
+}
+
+func TestLvlPPr_OutOfRangeLevelIsAMarshalError(t *testing.T) {
+	// The exported LvlPPr lost the old fixed-XMLName guarantee, so an
+	// out-of-range Level (0 from the zero value, or 10+) must error at
+	// marshal time rather than emit a schema-invalid <a:lvl0pPr>/<a:lvl10pPr>.
+	for _, lvl := range []int{0, 10, -1} {
+		if _, err := xml.Marshal(&LvlPPr{Level: lvl, DefRPr: &DefRPr{Sz: 1800}}); err == nil {
+			t.Errorf("Level=%d: expected a marshal error for an out-of-schema level, got nil", lvl)
 		}
 	}
 }

@@ -29,6 +29,7 @@ import (
 	"fmt"
 
 	"github.com/mmonterroca/pptxgo/drawingml"
+	"github.com/mmonterroca/pptxgo/pkg/errors"
 )
 
 // XMLSlideMaster represents ppt/slideMasters/slideMaster1.xml (p:sldMaster).
@@ -171,7 +172,18 @@ type lvlPPrContent struct {
 }
 
 // MarshalXML implements xml.Marshaler, naming the element a:lvl<Level>pPr.
+// It rejects a Level outside 1-9 with an error rather than emitting an
+// out-of-schema element name: the old fixed-XMLName Lvl1PPr made an invalid
+// name structurally impossible, and since LvlPPr/TextStyle.Levels are
+// exported (a caller can build a &LvlPPr{} directly, e.g. omitting Level so
+// it defaults to 0, or setting 10+), that guarantee is re-established here.
+// The error surfaces at Save time — pptxgo's own newBodyLevels/
+// NewDefaultTxStyles always set Level in range, so this only fires on
+// caller-constructed styles.
 func (l *LvlPPr) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	if l.Level < 1 || l.Level > 9 {
+		return errors.InvalidArgument("LvlPPr.MarshalXML", "Level", l.Level, "must be between 1 and 9 (a:lvl1pPr through a:lvl9pPr)")
+	}
 	start.Name = xml.Name{Local: fmt.Sprintf("a:lvl%dpPr", l.Level)}
 	return e.EncodeElement(&lvlPPrContent{
 		MarL: l.MarL, Indent: l.Indent,
@@ -206,6 +218,15 @@ const bodyLevelCount = 9
 // levels of nested bullets stay visually distinguishable from their parent.
 var bodyBulletGlyphs = [bodyLevelCount]string{"•", "–", "•", "–", "•", "–", "•", "–", "•"}
 
+// bodyLevelSizes is the default font size (hundredths of a point) per body
+// level. Deeper levels shrink and then plateau, mirroring how PowerPoint's
+// own built-in themes de-emphasize nested content — a flat size across all
+// nine levels renders a Level(8) sub-bullet as large as a top-level one,
+// defeating the visual hierarchy the indent and alternating glyphs
+// establish. Level 1 stays 32pt (the body style's headline default the
+// title/other styles are sized against).
+var bodyLevelSizes = [bodyLevelCount]int{3200, 2800, 2400, 2000, 2000, 1800, 1800, 1800, 1800}
+
 // newBodyLevels returns bodyLevelCount LvlPPr entries (levels 1-9) for the
 // body style's bullet cascade — see NewDefaultTxStyles.
 func newBodyLevels() []*LvlPPr {
@@ -219,7 +240,7 @@ func newBodyLevels() []*LvlPPr {
 			Indent: &indent,
 			BuFont: &drawingml.BuFont{Typeface: "Arial"},
 			BuChar: &drawingml.BuChar{Char: bodyBulletGlyphs[i]},
-			DefRPr: &DefRPr{Sz: 3200},
+			DefRPr: &DefRPr{Sz: bodyLevelSizes[i]},
 		}
 	}
 	return levels
