@@ -209,6 +209,32 @@ func ownerPathFromRelsPath(relsPath string) (owner string, ok bool) {
 	return parentDir + "/" + base, true
 }
 
+// maxPreallocBytes caps the buffer pre-allocation in readZipFile. The zip
+// entry's declared uncompressed size is only a hint (it comes from an
+// attacker-controllable header), so it is honored solely up to this bound:
+// beyond it, io.Copy's own incremental growth takes over — slightly slower
+// for a genuinely huge part, but immune to a lying header that would
+// otherwise make bytes.Buffer.Grow panic ("too large", or "negative count"
+// once int() wraps a >2GiB value on a 32-bit build) or trigger a multi-GiB
+// speculative allocation. 64 MiB comfortably covers real OOXML parts
+// (slides are KiB; even a large embedded media part rarely nears this)
+// while capping the damage a hostile header can do.
+const maxPreallocBytes = 64 << 20
+
+// preallocSize returns how many bytes readZipFile may pre-grow its buffer
+// by for a zip entry declaring uncompressedSize. The declared size is only
+// a header hint (attacker-controllable), so it is honored solely within
+// (0, maxPreallocBytes]: a zero, an out-of-range, or a would-overflow value
+// returns 0, leaving io.Copy's safe incremental growth to handle the actual
+// bytes. Keeping this a pure function makes the anti-zip-bomb bound
+// directly testable without constructing a malicious archive.
+func preallocSize(uncompressedSize uint64) int {
+	if uncompressedSize > 0 && uncompressedSize <= maxPreallocBytes {
+		return int(uncompressedSize)
+	}
+	return 0
+}
+
 func readZipFile(f *zip.File) ([]byte, error) {
 	rc, err := f.Open()
 	if err != nil {
@@ -216,11 +242,15 @@ func readZipFile(f *zip.File) ([]byte, error) {
 	}
 	defer rc.Close()
 
-	// The zip entry's own header already declares its uncompressed size,
-	// so the destination buffer can be sized once up front instead of
-	// growing (and re-copying) repeatedly as io.Copy fills it.
+	// The zip entry's own header declares its uncompressed size, so the
+	// destination buffer can be sized once up front instead of growing (and
+	// re-copying) repeatedly as io.Copy fills it — but only within a sane
+	// bound (see preallocSize), since that size is a header hint that a
+	// hostile or corrupt archive can lie about.
 	var buf bytes.Buffer
-	buf.Grow(int(f.UncompressedSize64))
+	if n := preallocSize(f.UncompressedSize64); n > 0 {
+		buf.Grow(n)
+	}
 	if _, err := io.Copy(&buf, rc); err != nil {
 		return nil, err
 	}

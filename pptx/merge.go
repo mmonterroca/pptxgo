@@ -76,8 +76,19 @@ func WithStrictMode() MergeOption {
 // "[[key1 ... [[key2]]" under WithDelimiters("[[", "]]") — would span both
 // and capture "key1 ... [[key2" as one bogus key instead of stopping at the
 // first close.
-func placeholderPattern(open, close string) *regexp.Regexp {
-	return regexp.MustCompile(regexp.QuoteMeta(open) + `\s*([^` + deduplicatedCharClass(open+close) + `]+?)\s*` + regexp.QuoteMeta(close))
+//
+// Empty delimiters are rejected with an error rather than compiled: an
+// empty open or close would build the character class "[^...]" with nothing
+// (or only the other delimiter's characters) inside, and in the all-empty
+// case the invalid regex "[^]" — which regexp.MustCompile would PANIC on,
+// unwinding out of the public Merge/PlaceholderNames APIs. Returning an
+// error (and using Compile, not MustCompile) keeps a misconfigured
+// delimiter a normal error return instead of a crash.
+func placeholderPattern(open, close string) (*regexp.Regexp, error) {
+	if open == "" || close == "" {
+		return nil, errors.InvalidArgument("WithDelimiters", "open/close", [2]string{open, close}, "placeholder delimiters must both be non-empty")
+	}
+	return regexp.Compile(regexp.QuoteMeta(open) + `\s*([^` + deduplicatedCharClass(open+close) + `]+?)\s*` + regexp.QuoteMeta(close))
 }
 
 // deduplicatedCharClass returns s's distinct runes, each escaped as needed
@@ -105,10 +116,16 @@ func deduplicatedCharClass(s string) string {
 }
 
 // Replace performs a literal (non-{{}}) substring replacement across every
-// slide's text, returning the number of occurrences replaced. See
-// substitute.go for how a match split across runs by PowerPoint's own
-// editing history is healed before matching.
+// slide's text, returning the number of occurrences replaced. An empty old
+// is rejected with an error: strings.ReplaceAll treats "" as matching
+// between every character, so an empty old (e.g. from an unset variable)
+// would otherwise inject new throughout every run and silently corrupt the
+// whole deck. See substitute.go for how a match split across runs by
+// PowerPoint's own editing history is healed before matching.
 func (t *Template) Replace(old, new string) (int, error) {
+	if old == "" {
+		return 0, errors.InvalidArgument("Replace", "old", old, "must not be empty")
+	}
 	total := 0
 	for _, pth := range t.slidePaths {
 		n, err := t.replaceInSlide(pth, old, new)
@@ -120,8 +137,12 @@ func (t *Template) Replace(old, new string) (int, error) {
 	return total, nil
 }
 
-// Replace performs a literal substring replacement on just this slide.
+// Replace performs a literal substring replacement on just this slide — see
+// Template.Replace, including why an empty old is an error.
 func (s *OpenSlide) Replace(old, new string) (int, error) {
+	if old == "" {
+		return 0, errors.InvalidArgument("Replace", "old", old, "must not be empty")
+	}
 	return s.tmpl.replaceInSlide(s.path, old, new)
 }
 
@@ -159,25 +180,19 @@ func (t *Template) replaceInSlide(pth, old, new string) (int, error) {
 // leaving unmatched placeholders in place.
 func (t *Template) Merge(data MergeData, opts ...MergeOption) (int, error) {
 	cfg := newMergeConfig(opts)
-	pattern := placeholderPattern(cfg.open, cfg.close)
+	pattern, err := placeholderPattern(cfg.open, cfg.close)
+	if err != nil {
+		return 0, err
+	}
 
 	total := 0
 	var missing []string
 	for _, pth := range t.slidePaths {
-		raw, err := t.rawSlideBytes(pth)
-		if err != nil {
-			return total, err
-		}
-		n, out, changed, err := mergeSlide(raw, pattern, data, &missing)
+		n, err := t.mergeInSlide(pth, pattern, data, &missing)
 		if err != nil {
 			return total, err
 		}
 		total += n
-		if changed > 0 {
-			if err := t.writeSlideBytes(pth, out); err != nil {
-				return total, err
-			}
-		}
 	}
 	if cfg.strict && len(missing) > 0 {
 		return total, missingPlaceholdersErr(missing)
@@ -188,24 +203,42 @@ func (t *Template) Merge(data MergeData, opts ...MergeOption) (int, error) {
 // Merge substitutes placeholders on just this slide — see Template.Merge.
 func (s *OpenSlide) Merge(data MergeData, opts ...MergeOption) (int, error) {
 	cfg := newMergeConfig(opts)
-	pattern := placeholderPattern(cfg.open, cfg.close)
-
-	raw, err := s.tmpl.rawSlideBytes(s.path)
+	pattern, err := placeholderPattern(cfg.open, cfg.close)
 	if err != nil {
 		return 0, err
 	}
+
 	var missing []string
-	n, out, changed, err := mergeSlide(raw, pattern, data, &missing)
+	n, err := s.tmpl.mergeInSlide(s.path, pattern, data, &missing)
+	if err != nil {
+		return n, err
+	}
+	if cfg.strict && len(missing) > 0 {
+		return n, missingPlaceholdersErr(missing)
+	}
+	return n, nil
+}
+
+// mergeInSlide runs pattern-based substitution on the single slide at pth
+// and writes the result back if anything changed — the shared body of both
+// Template.Merge (called once per slide) and OpenSlide.Merge (called once),
+// mirroring how Replace routes both its levels through replaceInSlide, so
+// the two Merge entry points can never silently diverge. The strict-mode
+// check stays with the callers, since Template.Merge aggregates missing
+// keys across every slide before deciding.
+func (t *Template) mergeInSlide(pth string, pattern *regexp.Regexp, data MergeData, missing *[]string) (int, error) {
+	raw, err := t.rawSlideBytes(pth)
+	if err != nil {
+		return 0, err
+	}
+	n, out, changed, err := mergeSlide(raw, pattern, data, missing)
 	if err != nil {
 		return 0, err
 	}
 	if changed > 0 {
-		if err := s.tmpl.writeSlideBytes(s.path, out); err != nil {
+		if err := t.writeSlideBytes(pth, out); err != nil {
 			return n, err
 		}
-	}
-	if cfg.strict && len(missing) > 0 {
-		return n, missingPlaceholdersErr(missing)
 	}
 	return n, nil
 }
@@ -232,18 +265,36 @@ func missingPlaceholdersErr(missing []string) error {
 // appending any unmatched placeholder key to *missing (a shared
 // accumulator across every slide in a Template.Merge call, so strict mode
 // reports every miss in the whole presentation, not just the first).
+//
+// The per-group transform matches the pattern ONCE with
+// FindAllStringSubmatchIndex and splices manually, rather than
+// ReplaceAllStringFunc plus a second FindStringSubmatch inside the callback
+// to recover the capture group — the callback form re-runs the engine on
+// every match purely to extract a key the first match already found.
 func mergeSlide(raw []byte, pattern *regexp.Regexp, data MergeData, missing *[]string) (count int, out []byte, changed int, err error) {
 	out, changed, err = substituteSlideText(raw, func(text string) string {
-		return pattern.ReplaceAllStringFunc(text, func(match string) string {
-			key := pattern.FindStringSubmatch(match)[1]
-			val, ok := data[key]
-			if !ok {
+		matches := pattern.FindAllStringSubmatchIndex(text, -1)
+		if len(matches) == 0 {
+			return text
+		}
+		var b strings.Builder
+		last := 0
+		for _, m := range matches {
+			// m[0]:m[1] is the whole placeholder; m[2]:m[3] is the key
+			// capture group.
+			b.WriteString(text[last:m[0]])
+			key := text[m[2]:m[3]]
+			if val, ok := data[key]; ok {
+				b.WriteString(val)
+				count++
+			} else {
 				*missing = append(*missing, key)
-				return match
+				b.WriteString(text[m[0]:m[1]]) // leave the placeholder untouched
 			}
-			count++
-			return val
-		})
+			last = m[1]
+		}
+		b.WriteString(text[last:])
+		return b.String()
 	})
 	return count, out, changed, err
 }
@@ -254,14 +305,24 @@ func mergeSlide(raw []byte, pattern *regexp.Regexp, data MergeData, missing *[]s
 // WithDelimiters here too if Merge will be called with a custom pair, so
 // PlaceholderNames reports what Merge will actually match (WithStrictMode
 // is accepted but has no effect — there is nothing to be strict about when
-// only listing names). Reuses extractText (open.go) rather than the
-// run-grouping machinery in substitute.go — finding names is pure reading,
-// and concatenating a:t content in document order already heals a
-// run-split pattern the same way Text() does, with no need to track
-// per-run byte spans for a read-only pass.
+// only listing names).
+//
+// Runs the SAME scan+run-grouping as Merge (via slideRunGroupTexts), NOT
+// extractText: extractText concatenates every a:t in a paragraph regardless
+// of formatting, so it would report a placeholder whose middle is
+// separately formatted (e.g. "{{" and "}}" plain but the key bold — three
+// runs with differing a:rPr that groupRuns keeps separate). Merge could
+// never substitute such a placeholder (its regex runs per format group), so
+// reporting it here would break the documented promise that
+// PlaceholderNames lists exactly what Merge substitutes — and, worse, would
+// make strict Merge look like it succeeded while the literal placeholder
+// survived in the deck.
 func (t *Template) PlaceholderNames(opts ...MergeOption) ([]string, error) {
 	cfg := newMergeConfig(opts)
-	pattern := placeholderPattern(cfg.open, cfg.close)
+	pattern, err := placeholderPattern(cfg.open, cfg.close)
+	if err != nil {
+		return nil, err
+	}
 	seen := make(map[string]bool)
 
 	for _, pth := range t.slidePaths {
@@ -269,12 +330,14 @@ func (t *Template) PlaceholderNames(opts ...MergeOption) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		text, err := extractText(raw)
+		texts, err := slideRunGroupTexts(raw)
 		if err != nil {
 			return nil, err
 		}
-		for _, m := range pattern.FindAllStringSubmatch(text, -1) {
-			seen[m[1]] = true
+		for _, text := range texts {
+			for _, m := range pattern.FindAllStringSubmatch(text, -1) {
+				seen[m[1]] = true
+			}
 		}
 	}
 
@@ -284,4 +347,22 @@ func (t *Template) PlaceholderNames(opts ...MergeOption) ([]string, error) {
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+// slideRunGroupTexts returns the concatenated text of each run-group on the
+// slide — the exact same units Merge's substitution operates on (a match
+// must live within one group). Sharing this with PlaceholderNames is what
+// keeps "what PlaceholderNames reports" and "what Merge substitutes"
+// identical by construction.
+func slideRunGroupTexts(raw []byte) ([]string, error) {
+	runs, err := scanRuns(raw)
+	if err != nil {
+		return nil, err
+	}
+	groups := groupRuns(runs)
+	texts := make([]string, len(groups))
+	for i, g := range groups {
+		texts[i] = g.text
+	}
+	return texts, nil
 }

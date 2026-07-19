@@ -106,11 +106,7 @@ func newTemplate(pkg *opc.Package) (*Template, error) {
 		if r.Type != RelTypeSlide {
 			continue
 		}
-		// Relationship targets on presentation.xml are relative to its own
-		// directory ("ppt/"), the same convention AddSlide's own
-		// p.presRels.Add(RelTypeSlide, "slides/slideN.xml", ...) writes —
-		// see presentation.go.
-		ridToPath[r.ID] = path.Clean(path.Join(path.Dir(PathPresentation), r.Target))
+		ridToPath[r.ID] = resolvePartTarget(PathPresentation, r.Target)
 	}
 
 	var slidePaths []string
@@ -126,6 +122,20 @@ func newTemplate(pkg *opc.Package) (*Template, error) {
 	}
 
 	return &Template{pkg: pkg, slidePaths: slidePaths}, nil
+}
+
+// resolvePartTarget turns a relationship's Target into a package-root part
+// path. OPC internal targets come in two flavors: relative to the owning
+// part's own directory (the common case PowerPoint writes, e.g.
+// "slides/slide1.xml" from ppt/presentation.xml), and absolute to the
+// package root (e.g. "/ppt/slides/slide1.xml"). A plain
+// path.Join(ownerDir, target) mangles the absolute form into
+// "ppt/ppt/slides/slide1.xml"; branching on the leading slash handles both.
+func resolvePartTarget(ownerPart, target string) string {
+	if strings.HasPrefix(target, "/") {
+		return path.Clean(strings.TrimPrefix(target, "/"))
+	}
+	return path.Clean(path.Join(path.Dir(ownerPart), target))
 }
 
 // SlideCount returns the number of slides, in presentation order.

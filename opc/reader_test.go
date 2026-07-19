@@ -206,6 +206,25 @@ func TestOpenBytes_UndeclaredContentTypeIsAnError(t *testing.T) {
 	}
 }
 
+func TestPreallocSize_ClampsUntrustedUncompressedSize(t *testing.T) {
+	cases := []struct {
+		name string
+		in   uint64
+		want int
+	}{
+		{"zero", 0, 0},
+		{"small", 1024, 1024},
+		{"exactly max", maxPreallocBytes, maxPreallocBytes},
+		{"just over max (a lying/bomb header)", maxPreallocBytes + 1, 0},
+		{"max uint64 (would overflow int on 32-bit)", 1<<64 - 1, 0},
+	}
+	for _, c := range cases {
+		if got := preallocSize(c.in); got != c.want {
+			t.Errorf("%s: preallocSize(%d) = %d, want %d", c.name, c.in, got, c.want)
+		}
+	}
+}
+
 func TestOwnerPathFromRelsPath(t *testing.T) {
 	cases := []struct {
 		relsPath  string

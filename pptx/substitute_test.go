@@ -268,6 +268,19 @@ func TestSubstituteSlideText_PreservesTheDefaultNamespaceWithNoPrefix(t *testing
 	}
 }
 
+func TestScanRuns_UnbalancedXMLReturnsErrorNotPanic(t *testing.T) {
+	// RawToken does not verify tag balance, so a stray closing tag reaches
+	// the EndElement branch with an empty stack. That must return a wrapped
+	// error, not panic with an index-out-of-range out of the public API.
+	unbalanced := `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p>` +
+		`<a:r><a:t>hi</a:t></a:r></a:p></a:p>` + // extra </a:p>
+		`</p:txBody></p:sp></p:spTree></p:cSld></p:sld>`
+
+	if _, err := scanRuns([]byte(unbalanced)); err == nil {
+		t.Fatal("expected scanRuns to return an error for unbalanced XML, not panic")
+	}
+}
+
 func TestScanRuns_CapturesSpansForTheHandCraftedFixture(t *testing.T) {
 	runs, err := scanRuns([]byte(splitPlaceholderSlideXML))
 	if err != nil {

@@ -89,6 +89,24 @@ func TestOpen_SlidesInPresentationOrderNotFilenameOrder(t *testing.T) {
 	}
 }
 
+func TestResolvePartTarget_HandlesRelativeAndAbsoluteTargets(t *testing.T) {
+	cases := []struct {
+		owner, target, want string
+	}{
+		// Relative to the owner's own directory (what PowerPoint writes).
+		{"ppt/presentation.xml", "slides/slide1.xml", "ppt/slides/slide1.xml"},
+		{"ppt/presentation.xml", "../ppt/slides/slide1.xml", "ppt/slides/slide1.xml"},
+		// Absolute to the package root (OPC-legal, must not be doubled to
+		// "ppt/ppt/slides/slide1.xml").
+		{"ppt/presentation.xml", "/ppt/slides/slide1.xml", "ppt/slides/slide1.xml"},
+	}
+	for _, c := range cases {
+		if got := resolvePartTarget(c.owner, c.target); got != c.want {
+			t.Errorf("resolvePartTarget(%q, %q) = %q, want %q", c.owner, c.target, got, c.want)
+		}
+	}
+}
+
 func TestOpen_SlideOutOfRangeIsAnError(t *testing.T) {
 	tmpl := openFixture(t, testdataSample)
 

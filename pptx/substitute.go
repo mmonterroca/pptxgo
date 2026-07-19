@@ -132,6 +132,14 @@ func scanRuns(raw []byte) ([]*runSpan, error) {
 			stack = append(stack, frame{local: el.Name.Local, start: startOffset})
 
 		case xml.EndElement:
+			// RawToken (unlike Token) does not verify that start and end
+			// tags balance, so a corrupt or hand-edited slide with a stray
+			// closing tag reaches here with an empty stack — indexing
+			// stack[len-1] would panic out of the public Replace/Merge/
+			// PlaceholderNames APIs. Treat it as the malformed XML it is.
+			if len(stack) == 0 {
+				return nil, errors.InvalidArgument("pptx.scanRuns", "xml", "unbalanced", "malformed slide XML: unexpected closing tag with no matching open")
+			}
 			top := stack[len(stack)-1]
 			stack = stack[:len(stack)-1]
 
