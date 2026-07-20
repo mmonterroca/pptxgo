@@ -91,3 +91,52 @@ type GraphicFrameLocks struct {
 	NoMove         bool     `xml:"noMove,attr,omitempty"`
 	NoResize       bool     `xml:"noResize,attr,omitempty"`
 }
+
+// GroupXfrm is a group shape's own a:xfrm (CT_GroupTransform2D) — distinct
+// from Xfrm (CT_Transform2D, an ordinary shape's own transform): both
+// happen to share the "a:xfrm" element name (used in different parent
+// contexts, p:grpSpPr vs. p:spPr, so there is no field-tag conflict — see
+// ChOff's own doc comment for the conflict this design DOES have to dodge),
+// but only GroupXfrm carries ChOff/ChExt, the child coordinate space every
+// shape nested inside the group is positioned in. Field order mirrors the
+// schema: off, ext, chOff, chExt.
+type GroupXfrm struct {
+	XMLName xml.Name `xml:"a:xfrm"`
+	Rot     int      `xml:"rot,attr,omitempty"` // rotation, 60,000ths of a degree
+	FlipH   bool     `xml:"flipH,attr,omitempty"`
+	FlipV   bool     `xml:"flipV,attr,omitempty"`
+	Off     *Off     `xml:"a:off,omitempty"`
+	Ext     *Ext     `xml:"a:ext,omitempty"`
+	ChOff   *ChOff   `xml:"a:chOff,omitempty"`
+	ChExt   *ChExt   `xml:"a:chExt,omitempty"`
+}
+
+// ChOff is a:chOff (CT_Point2D): the top-left corner of the coordinate
+// space a group's CHILDREN are positioned in — paired with ChExt to
+// complete GroupXfrm. A separate type from Off, not a reuse of it, even
+// though both are schema-identical CT_Point2D: Off's own fixed "a:off"
+// XMLName would win over any field tag that tried to rename it to
+// "a:chOff" — the same conflict TcBorderLn/LineEnd/GraphicFrameXfrm's own
+// doc comments already document, encoding/xml's rule that a nested type's
+// own XMLName always wins.
+//
+// Slide.AddGroup sets ChOff equal to the group's own Off and ChExt equal to
+// its own Ext (a 1:1 child space) so a shape added inside the group at a
+// given (x, y) lands at that exact slide position — the same coordinates
+// it would use outside the group. The general mapping PowerPoint applies is
+// p_parent = off + (p_child − chOff)·(ext/chExt); chOff=off ∧ chExt=ext
+// makes that the identity function.
+type ChOff struct {
+	XMLName xml.Name `xml:"a:chOff"`
+	X       int      `xml:"x,attr"`
+	Y       int      `xml:"y,attr"`
+}
+
+// ChExt is a:chExt (CT_PositiveSize2D): the size of a group's child
+// coordinate space — see ChOff's own doc comment for the full mapping and
+// why this can't reuse Ext directly.
+type ChExt struct {
+	XMLName xml.Name `xml:"a:chExt"`
+	Cx      int      `xml:"cx,attr"`
+	Cy      int      `xml:"cy,attr"`
+}

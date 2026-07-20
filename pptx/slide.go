@@ -52,6 +52,17 @@ type Slide struct {
 	notesBody    *drawingml.TextBody     // the notes slide's body text body once Notes has created one, so a repeat Notes call appends
 }
 
+// allocID returns the next available shape ID on this slide, incrementing
+// the counter — the single allocator every element-adding method (shapes,
+// pictures, tables, placeholders, groups, connectors) shares, since IDs are
+// slide-global: a shape nested inside a group still draws from the same
+// sequence as a top-level one, not a separate per-group counter.
+func (s *Slide) allocID() uint32 {
+	id := s.nextShapeID
+	s.nextShapeID++
+	return id
+}
+
 // placeholderKey identifies a placeholder by type+idx — the pair PowerPoint
 // itself uses to key placeholders on a slide, so two placeholders sharing
 // one is a corruption PowerPoint "repairs" on open, not schema-invalid XML
@@ -112,14 +123,56 @@ func (s *Slide) AddShape(prst PresetGeometry, x, y, w, h int) *ShapeRef {
 	return s.addShape(prst, x, y, w, h, false)
 }
 
-// addShape is the shared core of AddTextBox and AddShape: both place a p:sp
-// with a text body, differing only in preset geometry and whether p:cNvSpPr
-// carries the txBox marker (required for PowerPoint to treat a bare
-// rectangle as a text container rather than an autoshape).
-func (s *Slide) addShape(prst PresetGeometry, x, y, w, h int, isTextBox bool) *ShapeRef {
-	id := s.nextShapeID
-	s.nextShapeID++
+// AddGroup adds a group shape (p:grpSp) at the given position and size (x,
+// y, w, h, all in EMUs) and returns a handle for adding member shapes to
+// it — a set of shapes that move, resize, and rotate together in
+// PowerPoint's authoring UI, the same "Group" operation PowerPoint's own UI
+// offers. The group's child coordinate space starts 1:1 with the slide's
+// own (chOff=off, chExt=ext — see drawingml.GroupXfrm's own doc comment for
+// the mapping this makes an identity function): a shape added via
+// Group.AddShape at, say, Inches(2), Inches(2) lands at exactly that slide
+// position, the same as it would outside the group — no separate
+// coordinate system to reason about. x, y, w, h set the group's own visible
+// bounding box; PowerPoint's own "Group" operation computes this box to
+// exactly enclose the member shapes, but pptxgo does not (member shapes are
+// added after AddGroup returns, so their extent isn't known yet) — pick a
+// box that covers where the members will actually be, or PowerPoint's
+// on-open "repair" may adjust it.
+func (s *Slide) AddGroup(x, y, w, h int) *Group {
+	id := s.allocID()
+	off := &drawingml.Off{X: x, Y: y}
+	ext := &drawingml.Ext{Cx: w, Cy: h}
+	grp := &GroupShape{
+		NvGrpSpPr: newNvGrpSpPr(id, fmt.Sprintf("Group %d", id)),
+		GrpSpPr: &GrpSpPr{
+			Xfrm: &drawingml.GroupXfrm{
+				Off:   off,
+				Ext:   ext,
+				ChOff: &drawingml.ChOff{X: x, Y: y},
+				ChExt: &drawingml.ChExt{Cx: w, Cy: h},
+			},
+		},
+	}
+	s.spTree.Content = append(s.spTree.Content, grp)
+	return &Group{pres: s.pres, slidePath: s.path, slide: s, grp: grp}
+}
 
+// addShape is the shared core of AddTextBox and AddShape: both place a p:sp
+// on this slide's own top-level shape tree.
+func (s *Slide) addShape(prst PresetGeometry, x, y, w, h int, isTextBox bool) *ShapeRef {
+	shape, ref := buildShape(s.pres, s.path, s.allocID(), prst, x, y, w, h, isTextBox)
+	s.spTree.Content = append(s.spTree.Content, shape)
+	return ref
+}
+
+// buildShape constructs a p:sp (text box or autoshape) with the given
+// already-allocated id, WITHOUT appending it anywhere — shared by
+// Slide.addShape and Group.addShape, which append into different Content
+// slices (the slide's own top-level spTree vs. a nested p:grpSp's own) but
+// otherwise build an identical shape. Differs only in preset geometry and
+// whether p:cNvSpPr carries the txBox marker (required for PowerPoint to
+// treat a bare rectangle as a text container rather than an autoshape).
+func buildShape(pres *Presentation, slidePath string, id uint32, prst PresetGeometry, x, y, w, h int, isTextBox bool) (*Shape, *ShapeRef) {
 	name := "Shape"
 	cNvSpPr := &CNvSpPr{}
 	if isTextBox {
@@ -144,9 +197,7 @@ func (s *Slide) addShape(prst PresetGeometry, x, y, w, h int, isTextBox bool) *S
 		SpPr:   spPr,
 		TxBody: body,
 	}
-	s.spTree.Content = append(s.spTree.Content, shape)
-
-	return &ShapeRef{pres: s.pres, slidePath: s.path, body: body, spPr: spPr}
+	return shape, &ShapeRef{pres: pres, slidePath: slidePath, id: id, body: body, spPr: spPr}
 }
 
 // AddPlaceholder adds a placeholder shape of the given type and index (see
@@ -183,13 +234,12 @@ func (s *Slide) AddPlaceholder(phType PlaceholderType, idx uint32) *ShapeRef {
 	}
 	s.placeholders[key] = true
 
-	id := s.nextShapeID
-	s.nextShapeID++
+	id := s.allocID()
 
 	shape := newPlaceholderShape(id, fmt.Sprintf("Placeholder %d", id), phType, idx, nil)
 	s.spTree.Content = append(s.spTree.Content, shape)
 
-	return &ShapeRef{pres: s.pres, slidePath: s.path, body: shape.TxBody, spPr: shape.SpPr}
+	return &ShapeRef{pres: s.pres, slidePath: s.path, id: id, body: shape.TxBody, spPr: shape.SpPr}
 }
 
 // Title adds this slide's title placeholder with the given text and
@@ -280,8 +330,7 @@ func (s *Slide) AddImageFromBytesWithSize(data []byte, x, y, w, h int) *PictureR
 // imageless, *PictureRef so a long fluent chain doesn't need a nil check
 // after every call.
 func (s *Slide) addPicture(data []byte, x, y, w, h int, useExplicitSize bool) *PictureRef {
-	id := s.nextShapeID
-	s.nextShapeID++
+	id := s.allocID()
 
 	spPr := &SpPr{PrstGeom: &drawingml.PrstGeom{Prst: "rect", AvLst: &drawingml.AvLst{}}}
 	pic := &Picture{
@@ -360,8 +409,7 @@ func (s *Slide) AddTable(rows, cols, x, y, w, h int) *Table {
 		}
 	}
 
-	id := s.nextShapeID
-	s.nextShapeID++
+	id := s.allocID()
 
 	colW := w / cols
 	grid := &drawingml.TblGrid{}
