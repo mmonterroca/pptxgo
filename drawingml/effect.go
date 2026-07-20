@@ -70,19 +70,27 @@ type OuterShdw struct {
 }
 
 // Reflection is a:reflection (CT_ReflectionEffect): a mirror-image
-// reflection of the shape, fading in opacity along its own axis. Only the
-// fade/blur/direction attributes needed for a straight-down reflection are
-// modeled — scale/skew (sx/sy/kx/ky), FadeDir, and Algn are out of scope
-// until a caller needs them.
+// reflection of the shape, fading in opacity along its own axis. Sy is the
+// one non-obvious essential: a reflection is a copy scaled by sy=-100000
+// (−100% vertical scale — the actual mirror flip); WITHOUT it PowerPoint
+// draws the copy right-side-up over the shape and nothing visible appears
+// (the schema still validates — SDK-valid is not the same as
+// renders-as-intended). Algn/RotWithShape place it (bottom-aligned, not
+// rotating with the shape) the way PowerPoint's own reflection presets do.
+// Skew (kx/ky), FadeDir, and the horizontal Sx are out of scope until a
+// caller needs them.
 type Reflection struct {
-	XMLName xml.Name `xml:"a:reflection"`
-	BlurRad int      `xml:"blurRad,attr,omitempty"`
-	StA     int      `xml:"stA,attr,omitempty"`
-	StPos   int      `xml:"stPos,attr,omitempty"`
-	EndA    int      `xml:"endA,attr,omitempty"`
-	EndPos  int      `xml:"endPos,attr,omitempty"`
-	Dist    int      `xml:"dist,attr,omitempty"`
-	Dir     int      `xml:"dir,attr,omitempty"`
+	XMLName      xml.Name  `xml:"a:reflection"`
+	BlurRad      int       `xml:"blurRad,attr,omitempty"`
+	StA          int       `xml:"stA,attr,omitempty"`
+	StPos        int       `xml:"stPos,attr,omitempty"`
+	EndA         int       `xml:"endA,attr,omitempty"`
+	EndPos       int       `xml:"endPos,attr,omitempty"`
+	Dist         int       `xml:"dist,attr,omitempty"`
+	Dir          int       `xml:"dir,attr,omitempty"`
+	Sy           int       `xml:"sy,attr,omitempty"` // vertical scale in thousandths of a percent; -100000 mirrors
+	Algn         string    `xml:"algn,attr,omitempty"`
+	RotWithShape *TriState `xml:"rotWithShape,attr,omitempty"`
 }
 
 // SoftEdge is a:softEdge (CT_SoftEdgesEffect): fades the shape's own edges

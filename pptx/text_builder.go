@@ -262,13 +262,10 @@ func (sr *ShapeRef) Glow(c drawingml.Color, radiusPoints float64) *ShapeRef {
 // startOpacityPercent at the shape's own edge to fully transparent.
 // startOpacityPercent must be 0-100; an out-of-range value is recorded as
 // an error on the presentation (returned by Save) and leaves the effect
-// unset.
-//
-// SDK-valid and LibreOffice-opens, but LibreOffice does not render a:
-// reflection on an autoshape (confirmed with startOpacityPercent as high as
-// 80 — a blank render, not merely a subtle one, unlike Shadow/LineJoin's
-// own initially-subtle-looking results) — open in real PowerPoint to
-// confirm the reflection itself renders there.
+// unset. The mirror flip comes from the emitted sy=-100000 (see Reflection's
+// own doc comment) — an earlier version omitted it and rendered nothing in
+// any viewer despite passing the SDK validator. LibreOffice still does not
+// render a:reflection; confirmed visible in real PowerPoint.
 func (sr *ShapeRef) Reflection(startOpacityPercent float64) *ShapeRef {
 	refl, ok := newReflection(sr.pres, startOpacityPercent)
 	if !ok {
@@ -541,11 +538,16 @@ func newReflection(pres *Presentation, startOpacityPercent float64) (*drawingml.
 		pres.addErr(errors.InvalidArgument("Reflection", "startOpacityPercent", startOpacityPercent, "must be between 0 and 100"))
 		return nil, false
 	}
+	notRotating := drawingml.TriState(false)
 	return &drawingml.Reflection{
-		BlurRad: 6350, // ~0.5pt, a "tight" reflection
-		StA:     int(math.Round(startOpacityPercent * 1000)),
-		EndPos:  100000,
-		Dir:     5400000, // straight down
+		BlurRad:      6350, // ~0.5pt, a "tight" reflection
+		StA:          int(math.Round(startOpacityPercent * 1000)),
+		EndA:         300, // fades to near-transparent
+		EndPos:       55000,
+		Dir:          5400000, // straight down
+		Sy:           -100000, // −100% vertical scale = the mirror flip (without this nothing renders)
+		Algn:         "bl",    // anchor the reflection at the shape's bottom
+		RotWithShape: &notRotating,
 	}, true
 }
 

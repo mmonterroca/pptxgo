@@ -523,6 +523,9 @@ func TestReflection_EmitsStartOpacity(t *testing.T) {
 	if !strings.Contains(slide, `stA="50000"`) {
 		t.Errorf("expected stA=\"50000\", got %s", slide)
 	}
+	if !strings.Contains(slide, `sy="-100000"`) {
+		t.Errorf("expected the mirror-flip sy=\"-100000\" (without it nothing renders), got %s", slide)
+	}
 }
 
 func TestReflection_OutOfRangeAccumulatesError(t *testing.T) {

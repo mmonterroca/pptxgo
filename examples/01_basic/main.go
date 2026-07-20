@@ -135,9 +135,11 @@ func main() {
 		ArrowEnd(pptx.ArrowheadTriangle)
 
 	logo := logoPNG()
+	// SoftEdges fades the image's own edges to transparent — shown WITHOUT a
+	// Border here, since a hard outline would just redraw a crisp edge over
+	// the fade and mask the effect.
 	s.AddImageFromBytes(logo, pptx.Inches(1), pptx.Inches(3.5)).
-		Border(pptx.RGB(0x44, 0x54, 0x6A), 1.0).
-		SoftEdges(3)
+		SoftEdges(8)
 	// Same bytes as above, placed again elsewhere: pptx.Presentation dedups
 	// identical media content, so this embeds only one ppt/media/ part.
 	s.AddImageFromBytesWithSize(logo, pptx.Inches(11.6), pptx.Inches(6.9), pptx.Inches(0.5), pptx.Inches(0.31))

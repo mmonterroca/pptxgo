@@ -29,11 +29,25 @@ import (
 	"testing"
 )
 
+func TestReflection_EmitsMirrorScaleSy(t *testing.T) {
+	// Regression: a reflection without sy=-100000 is a copy that is NOT
+	// flipped, so nothing visible renders in any viewer even though the XML
+	// validates. sy is the essential attribute.
+	r := &Reflection{BlurRad: 6350, StA: 35000, EndPos: 55000, Dir: 5400000, Sy: -100000, Algn: "bl"}
+	got := marshal(t, r)
+	if !strings.Contains(got, `sy="-100000"`) {
+		t.Errorf("expected sy=\"-100000\" (the mirror flip), got %s", got)
+	}
+	if !strings.Contains(got, `algn="bl"`) {
+		t.Errorf("expected algn=\"bl\", got %s", got)
+	}
+}
+
 func TestEffectLst_ChildOrderMirrorsSchemaSequence(t *testing.T) {
 	e := &EffectLst{
 		Glow:       &Glow{Rad: 1000, SrgbClr: &SrgbClr{Val: "FF0000"}},
 		OuterShdw:  &OuterShdw{BlurRad: 57150},
-		Reflection: &Reflection{StA: 50000},
+		Reflection: &Reflection{StA: 50000, Sy: -100000},
 		SoftEdge:   &SoftEdge{Rad: 1000},
 	}
 	got := marshal(t, e)
