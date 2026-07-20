@@ -127,15 +127,64 @@ func (t Theme) themeName() string {
 	return t.Name
 }
 
-// clrSlot is one color-scheme slot (a:dk1, a:accent1, ...) wrapping an
-// explicit RGB value. The wrapping element name comes from the parent field
-// tag in clrSchemeXML; the child is always an a:srgbClr.
+// withDefaults returns a copy of t with any unset field filled from
+// DefaultTheme: an empty font typeface, or a color slot left at its zero value
+// (the zero drawingml.Color, pure black), falls back to the default's value.
+// This makes a partially-specified Theme safe — passing
+// Theme{Colors: ThemeColors{Accent1: brandNavy}} to WithTheme keeps the other
+// eleven slots at the default Office palette instead of rendering them as
+// black — mirroring the empty-font fallback. The one edge case: a slot
+// deliberately set to pure black RGB(0,0,0) reads as unset and so inherits the
+// default; use the near-black dark slots, or start from DefaultTheme() (whose
+// Dark1 is already black), when you need an explicit black.
+func (t Theme) withDefaults() Theme {
+	d := DefaultTheme()
+	fill := func(c *drawingml.Color, def drawingml.Color) {
+		if *c == (drawingml.Color{}) {
+			*c = def
+		}
+	}
+	fill(&t.Colors.Dark1, d.Colors.Dark1)
+	fill(&t.Colors.Light1, d.Colors.Light1)
+	fill(&t.Colors.Dark2, d.Colors.Dark2)
+	fill(&t.Colors.Light2, d.Colors.Light2)
+	fill(&t.Colors.Accent1, d.Colors.Accent1)
+	fill(&t.Colors.Accent2, d.Colors.Accent2)
+	fill(&t.Colors.Accent3, d.Colors.Accent3)
+	fill(&t.Colors.Accent4, d.Colors.Accent4)
+	fill(&t.Colors.Accent5, d.Colors.Accent5)
+	fill(&t.Colors.Accent6, d.Colors.Accent6)
+	fill(&t.Colors.Hyperlink, d.Colors.Hyperlink)
+	fill(&t.Colors.FollowedHyperlink, d.Colors.FollowedHyperlink)
+	if t.Fonts.Major == "" {
+		t.Fonts.Major = d.Fonts.Major
+	}
+	if t.Fonts.Minor == "" {
+		t.Fonts.Minor = d.Fonts.Minor
+	}
+	return t
+}
+
+// clrSlot is one color-scheme slot (a:dk1, a:accent1, ...). The wrapping
+// element name comes from the parent field tag in clrSchemeXML; the child is
+// exactly one of an explicit a:srgbClr (accents, dk2/lt2, links) or a system
+// a:sysClr (dk1/lt1, so the primary text/background follow the OS — see
+// SysClr).
 type clrSlot struct {
-	Srgb *drawingml.SrgbClr `xml:"a:srgbClr"`
+	Srgb *drawingml.SrgbClr `xml:"a:srgbClr,omitempty"`
+	Sys  *drawingml.SysClr  `xml:"a:sysClr,omitempty"`
 }
 
 func newClrSlot(c drawingml.Color) clrSlot {
 	return clrSlot{Srgb: &drawingml.SrgbClr{Val: drawingml.ToHex(c)}}
+}
+
+// newSysClrSlot builds a dk1/lt1 slot as a system color (val "windowText" or
+// "window") whose lastClr fallback is the theme's own hex — matching how
+// Office authors dk1/lt1 so the deck respects OS accessibility settings while
+// still carrying a concrete fallback color.
+func newSysClrSlot(val string, c drawingml.Color) clrSlot {
+	return clrSlot{Sys: &drawingml.SysClr{Val: val, LastClr: drawingml.ToHex(c)}}
 }
 
 // clrSchemeXML models a:clrScheme so the twelve brand color slots are
@@ -229,11 +278,17 @@ const themeFmtScheme = `<a:fmtScheme name="Office">` +
 // declares the a:namespace those fragments' "a:"-prefixed tags rely on.
 func renderThemeXML(t Theme) []byte {
 	name := t.themeName()
+	// Fill any unset color slot / empty font from the default palette, so a
+	// partially-specified Theme doesn't render its untouched slots as black.
+	t = t.withDefaults()
 
 	clr, err := xml.Marshal(clrSchemeXML{
-		Name:     name,
-		Dk1:      newClrSlot(t.Colors.Dark1),
-		Lt1:      newClrSlot(t.Colors.Light1),
+		Name: name,
+		// dk1/lt1 are system colors (Office convention) so the primary
+		// text/background follow the viewer's OS accessibility settings, with
+		// the theme's own hex as the lastClr fallback.
+		Dk1:      newSysClrSlot("windowText", t.Colors.Dark1),
+		Lt1:      newSysClrSlot("window", t.Colors.Light1),
 		Dk2:      newClrSlot(t.Colors.Dark2),
 		Lt2:      newClrSlot(t.Colors.Light2),
 		Accent1:  newClrSlot(t.Colors.Accent1),
@@ -249,18 +304,10 @@ func renderThemeXML(t Theme) []byte {
 		panic(err) // static struct with string/hex fields only; cannot fail
 	}
 
-	majorFont := t.Fonts.Major
-	if majorFont == "" {
-		majorFont = "Calibri Light"
-	}
-	minorFont := t.Fonts.Minor
-	if minorFont == "" {
-		minorFont = "Calibri"
-	}
 	font, err := xml.Marshal(fontSchemeXML{
 		Name:      name,
-		MajorFont: fontCollectionXML{Latin: latinFontXML{Typeface: majorFont}},
-		MinorFont: fontCollectionXML{Latin: latinFontXML{Typeface: minorFont}},
+		MajorFont: fontCollectionXML{Latin: latinFontXML{Typeface: t.Fonts.Major}},
+		MinorFont: fontCollectionXML{Latin: latinFontXML{Typeface: t.Fonts.Minor}},
 	})
 	if err != nil {
 		panic(err) // static struct with string fields only; cannot fail
