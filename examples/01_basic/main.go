@@ -51,8 +51,26 @@ func logoPNG() []byte {
 	return buf.Bytes()
 }
 
+// brandTheme starts from the default Office theme and overrides just the
+// brand-relevant slots (accent palette + heading/body fonts). Because every
+// shape below references colors by scheme slot (FillScheme, BorderScheme,
+// ColorScheme, BackgroundScheme), this one Theme recolors all of them at
+// once — the badge's SchemeAccent2, the ellipse-adjacent SchemeDark2 border,
+// the SchemeLight2 background, and the SchemeHyperlink link color.
+func brandTheme() pptx.Theme {
+	t := pptx.DefaultTheme()
+	t.Name = "pptxgo Demo"
+	t.Colors.Dark2 = pptx.RGB(0x1F, 0x49, 0x7D)   // deep navy
+	t.Colors.Accent1 = pptx.RGB(0x1F, 0x49, 0x7D) // deep navy
+	t.Colors.Accent2 = pptx.RGB(0xED, 0x7D, 0x31) // warm orange badge
+	t.Colors.Hyperlink = pptx.RGB(0x1F, 0x49, 0x7D)
+	t.Fonts.Major = "Calibri Light"
+	t.Fonts.Minor = "Calibri"
+	return t
+}
+
 func main() {
-	p := pptx.New()
+	p := pptx.New(pptx.WithTheme(brandTheme()))
 
 	s := p.AddSlide().BackgroundScheme(pptx.SchemeLight2)
 
