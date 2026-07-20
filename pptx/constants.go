@@ -40,6 +40,9 @@ const NamespaceMain = "http://schemas.openxmlformats.org/presentationml/2006/mai
 const (
 	PathPresentation = "ppt/presentation.xml"
 	PathTheme1       = "ppt/theme/theme1.xml"
+	// PathTheme2 is the notes master's own theme part, created lazily with the
+	// notes master (Office emits a distinct theme per master; see Slide.Notes).
+	PathTheme2       = "ppt/theme/theme2.xml"
 	PathSlideMaster1 = "ppt/slideMasters/slideMaster1.xml"
 	PathCoreProps    = "docProps/core.xml"
 	PathAppProps     = "docProps/app.xml"

@@ -85,10 +85,13 @@ func TestNotes_WiresRelationshipsAndContentTypes(t *testing.T) {
 		t.Errorf("expected notesSlide -> slide relationship, got %s", notesRels)
 	}
 
-	// Notes master -> theme.
+	// Notes master -> its own theme part (theme2, not the slide master's theme1).
+	if _, ok := files["ppt/theme/theme2.xml"]; !ok {
+		t.Error("expected the notes master to get its own ppt/theme/theme2.xml part")
+	}
 	masterRels := string(files["ppt/notesMasters/_rels/notesMaster1.xml.rels"])
-	if !strings.Contains(masterRels, `Target="../theme/theme1.xml"`) {
-		t.Errorf("expected notesMaster -> theme relationship, got %s", masterRels)
+	if !strings.Contains(masterRels, `Target="../theme/theme2.xml"`) {
+		t.Errorf("expected notesMaster -> theme2 relationship, got %s", masterRels)
 	}
 
 	// Presentation -> notes master.

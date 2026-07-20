@@ -100,8 +100,12 @@ func (p *Presentation) ensureNotesMaster() {
 		ClrMap: NewDefaultClrMap(),
 	})
 
-	// A master part references a theme; the notes master shares the one theme.
-	if _, err := p.pkg.Relationships(PathNotesMaster1).Add(opc.RelTypeTheme, "../theme/theme1.xml", "Internal"); err != nil {
+	// Office emits a distinct theme part per master (theme1 for the slide
+	// master, theme2 for the notes master); pointing two masters at one theme
+	// part is spec-legal but a shape PowerPoint's repair heuristics can flag,
+	// so give the notes master its own theme2.xml (identical content).
+	p.pkg.AddRawPart(PathTheme2, opc.ContentTypeTheme, p.themeXML)
+	if _, err := p.pkg.Relationships(PathNotesMaster1).Add(opc.RelTypeTheme, "../theme/theme2.xml", "Internal"); err != nil {
 		panic(err) // static, well-formed arguments; cannot fail
 	}
 
