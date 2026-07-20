@@ -249,6 +249,22 @@ type Br struct {
 	XMLName xml.Name `xml:"a:br"`
 }
 
+// Fld is a:fld (CT_TextField): a text field whose displayed value the
+// consumer computes at view/print time — most commonly the current slide
+// number (Type "slidenum") or the date (Type "datetime"). ID is a required
+// GUID identifying the field instance; Text is the fallback/cached rendering
+// a consumer shows if it doesn't recompute the field. It sits among a
+// paragraph's runs (Paragraph.Content's r|br|fld sequence), supplying its own
+// XMLName so `xml:",any"` places it correctly. Field order mirrors the
+// schema: rPr before the text.
+type Fld struct {
+	XMLName xml.Name `xml:"a:fld"`
+	ID      string   `xml:"id,attr"`
+	Type    string   `xml:"type,attr,omitempty"`
+	RPr     *RPr     `xml:"a:rPr,omitempty"`
+	Text    string   `xml:"a:t,omitempty"`
+}
+
 // RPr is a:rPr (CT_TextCharacterProperties): run-level character
 // formatting. Field order mirrors the schema: attributes (sz, b, i, u)
 // first, then the fill group (SolidFill) ahead of the font group (Latin) —

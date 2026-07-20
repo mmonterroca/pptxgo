@@ -32,14 +32,33 @@ import (
 
 // XMLPresentation represents ppt/presentation.xml (p:presentation).
 type XMLPresentation struct {
-	XMLName        xml.Name        `xml:"p:presentation"`
-	XmlnsA         string          `xml:"xmlns:a,attr"`
-	XmlnsR         string          `xml:"xmlns:r,attr"`
-	XmlnsP         string          `xml:"xmlns:p,attr"`
-	SldMasterIdLst *SldMasterIdLst `xml:"p:sldMasterIdLst"`
-	SldIdLst       *SldIdLst       `xml:"p:sldIdLst"`
-	SldSz          *SldSz          `xml:"p:sldSz"`
-	NotesSz        *NotesSz        `xml:"p:notesSz"`
+	XMLName xml.Name `xml:"p:presentation"`
+	XmlnsA  string   `xml:"xmlns:a,attr"`
+	XmlnsR  string   `xml:"xmlns:r,attr"`
+	XmlnsP  string   `xml:"xmlns:p,attr"`
+	// Schema order (CT_Presentation): sldMasterIdLst, notesMasterIdLst,
+	// handoutMasterIdLst, sldIdLst, sldSz, notesSz. NotesMasterIdLst is nil
+	// until the first speaker note is added (see Slide.Notes), so a deck with
+	// no notes emits none.
+	SldMasterIdLst   *SldMasterIdLst   `xml:"p:sldMasterIdLst"`
+	NotesMasterIdLst *NotesMasterIdLst `xml:"p:notesMasterIdLst,omitempty"`
+	SldIdLst         *SldIdLst         `xml:"p:sldIdLst"`
+	SldSz            *SldSz            `xml:"p:sldSz"`
+	NotesSz          *NotesSz          `xml:"p:notesSz"`
+}
+
+// NotesMasterIdLst is p:notesMasterIdLst, the (at most one, for pptxgo) list
+// of notes masters.
+type NotesMasterIdLst struct {
+	XMLName xml.Name         `xml:"p:notesMasterIdLst"`
+	Entries []*NotesMasterId `xml:"p:notesMasterId"`
+}
+
+// NotesMasterId is a single p:notesMasterId entry, referencing the notes
+// master part via relationship ID.
+type NotesMasterId struct {
+	XMLName xml.Name `xml:"p:notesMasterId"`
+	RID     string   `xml:"r:id,attr"`
 }
 
 // SldMasterIdLst is p:sldMasterIdLst, the list of slide masters.

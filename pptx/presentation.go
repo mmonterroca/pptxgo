@@ -66,13 +66,15 @@ const (
 // presentation needs regardless of slide count — plus whatever slides
 // AddSlide adds. New() starts with zero slides.
 type Presentation struct {
-	pkg               *opc.Package
-	pres              *XMLPresentation
-	presRels          *opc.RelationshipManager
-	slideCount        int
-	errs              []error
-	mediaByHash       map[[sha256.Size]byte]string // content hash -> already-embedded media part's ppt/media/ basename; see mediaBasename
-	layoutIndexByType map[LayoutType]int           // LayoutType -> its 1-indexed slideLayoutN.xml part, for AddSlide's WithLayout
+	pkg                *opc.Package
+	pres               *XMLPresentation
+	presRels           *opc.RelationshipManager
+	slideCount         int
+	errs               []error
+	mediaByHash        map[[sha256.Size]byte]string // content hash -> already-embedded media part's ppt/media/ basename; see mediaBasename
+	layoutIndexByType  map[LayoutType]int           // LayoutType -> its 1-indexed slideLayoutN.xml part, for AddSlide's WithLayout
+	themeXML           []byte                       // the rendered theme1.xml bytes, reused for the notes master's own theme part (see ensureNotesMaster)
+	notesMasterCreated bool                         // whether the single notes master part exists yet (created lazily by Slide.Notes)
 }
 
 // Option configures a Presentation at construction time, for use with New.
@@ -202,7 +204,8 @@ func New(opts ...Option) *Presentation {
 	if cfg.theme != nil {
 		theme = *cfg.theme
 	}
-	pkg.AddRawPart(PathTheme1, opc.ContentTypeTheme, renderThemeXML(theme))
+	themeXML := renderThemeXML(theme)
+	pkg.AddRawPart(PathTheme1, opc.ContentTypeTheme, themeXML)
 
 	// Add the master's relationships first and thread the generated rIds
 	// into the XML, rather than restating "rId2" as a literal that silently
@@ -287,7 +290,7 @@ func New(opts ...Option) *Presentation {
 		panic(err)
 	}
 
-	p := &Presentation{pkg: pkg, pres: pres, presRels: presRels, layoutIndexByType: layoutIndexByType}
+	p := &Presentation{pkg: pkg, pres: pres, presRels: presRels, layoutIndexByType: layoutIndexByType, themeXML: themeXML}
 	p.addErr(cfg.err)
 	return p
 }
@@ -367,7 +370,7 @@ func (p *Presentation) AddSlide(opts ...SlideOption) *Slide {
 		RID: slideRID,
 	})
 
-	return &Slide{pres: p, path: path, cSld: cSld, spTree: spTree, nextShapeID: firstShapeID, layout: cfg.layout}
+	return &Slide{pres: p, num: n, path: path, cSld: cSld, spTree: spTree, nextShapeID: firstShapeID, layout: cfg.layout}
 }
 
 // addErr records a user-input validation error raised deep in a fluent
