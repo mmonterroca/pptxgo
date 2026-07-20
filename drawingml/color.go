@@ -125,6 +125,18 @@ type SchemeClr struct {
 	Val     string   `xml:"val,attr"`
 }
 
+// SysClr (a:sysClr) is a system color: Val names a system color slot (e.g.
+// "windowText", "window") whose actual RGB the consumer resolves from the
+// viewer's OS at display time, and LastClr is the fallback hex to use when no
+// system value is available. Used for a theme's dk1/lt1 slots, where Office
+// itself ties the primary text/background to the system colors so a deck
+// respects High-Contrast and other OS accessibility settings.
+type SysClr struct {
+	XMLName xml.Name `xml:"a:sysClr"`
+	Val     string   `xml:"val,attr"`
+	LastClr string   `xml:"lastClr,attr,omitempty"`
+}
+
 // NoFill (a:noFill) is an explicit "no fill" — distinct from omitting a
 // fill element, which lets the shape inherit one from its style or layout.
 type NoFill struct {

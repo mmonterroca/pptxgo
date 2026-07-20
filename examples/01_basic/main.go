@@ -60,9 +60,9 @@ func logoPNG() []byte {
 func brandTheme() pptx.Theme {
 	t := pptx.DefaultTheme()
 	t.Name = "pptxgo Demo"
-	t.Colors.Dark2 = pptx.RGB(0x1F, 0x49, 0x7D)    // deep navy
-	t.Colors.Accent1 = pptx.RGB(0x1F, 0x49, 0x7D)  // deep navy
-	t.Colors.Accent2 = pptx.RGB(0xED, 0x7D, 0x31)  // warm orange badge
+	t.Colors.Dark2 = pptx.RGB(0x1F, 0x49, 0x7D)   // deep navy
+	t.Colors.Accent1 = pptx.RGB(0x1F, 0x49, 0x7D) // deep navy
+	t.Colors.Accent2 = pptx.RGB(0xED, 0x7D, 0x31) // warm orange badge
 	t.Colors.Hyperlink = pptx.RGB(0x1F, 0x49, 0x7D)
 	t.Fonts.Major = "Calibri Light"
 	t.Fonts.Minor = "Calibri"
