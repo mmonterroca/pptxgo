@@ -48,7 +48,17 @@ const (
 	// part — spelled as a constant for callers that want the blank layout's
 	// path without computing it.
 	PathSlideLayout1 = "ppt/slideLayouts/slideLayout1.xml"
+
+	// PathNotesMaster1 is the single notes master, created lazily the first
+	// time any slide gets speaker notes (see Slide.Notes).
+	PathNotesMaster1 = "ppt/notesMasters/notesMaster1.xml"
 )
+
+// NotesSlidePath returns the part path for the notes slide annotating the nth
+// slide (1-indexed) — one notes slide per annotated slide, sharing its number.
+func NotesSlidePath(n int) string {
+	return "ppt/notesSlides/notesSlide" + strconv.Itoa(n) + ".xml"
+}
 
 // SlidePath returns the part path for the nth slide (1-indexed).
 func SlidePath(n int) string {
@@ -77,6 +87,8 @@ const (
 	ContentTypeSlideMaster  = "application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"
 	ContentTypeSlideLayout  = "application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"
 	ContentTypeSlide        = "application/vnd.openxmlformats-officedocument.presentationml.slide+xml"
+	ContentTypeNotesMaster  = "application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml"
+	ContentTypeNotesSlide   = "application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"
 )
 
 // Relationship types specific to PresentationML (image/theme/hyperlink and
@@ -86,4 +98,6 @@ const (
 	RelTypeSlideMaster    = opc.NamespaceOfficeDocumentRels + "/slideMaster"
 	RelTypeSlideLayout    = opc.NamespaceOfficeDocumentRels + "/slideLayout"
 	RelTypeSlide          = opc.NamespaceOfficeDocumentRels + "/slide"
+	RelTypeNotesMaster    = opc.NamespaceOfficeDocumentRels + "/notesMaster"
+	RelTypeNotesSlide     = opc.NamespaceOfficeDocumentRels + "/notesSlide"
 )

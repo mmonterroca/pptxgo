@@ -178,6 +178,11 @@ func main() {
 	tbl.Cell(3, 0).Text("Total").Bold()
 	tbl.Cell(3, 2).Text("+11%").Bold()
 
+	// Speaker notes for this slide — shown in PowerPoint's notes pane and on
+	// the printed notes page. The first Notes call lazily creates the deck's
+	// single notes master.
+	s.Notes("Lead with the +11% total.\nEMEA is the standout at +15% YoY.")
+
 	// Second slide: built from the Title and Content standard layout via
 	// placeholders instead of freely-positioned shapes. Title/Body inherit
 	// their geometry from slideLayout3.xml's own title/body placeholders
@@ -198,6 +203,8 @@ func main() {
 	body.AddParagraph().Text("Expand partner channel").Level(0)
 	body.AddParagraph().Text("Identify regional partners").Level(1)
 	body.AddParagraph().Text("Confirm SLAs with each partner").Level(2)
+
+	s2.Notes("Close by assigning owners to each next step before the meeting ends.")
 
 	f, err := os.Create("01_basic_demo.pptx")
 	if err != nil {

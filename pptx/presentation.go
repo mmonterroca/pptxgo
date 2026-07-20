@@ -71,8 +71,9 @@ type Presentation struct {
 	presRels          *opc.RelationshipManager
 	slideCount        int
 	errs              []error
-	mediaByHash       map[[sha256.Size]byte]string // content hash -> already-embedded media part's ppt/media/ basename; see mediaBasename
-	layoutIndexByType map[LayoutType]int           // LayoutType -> its 1-indexed slideLayoutN.xml part, for AddSlide's WithLayout
+	mediaByHash        map[[sha256.Size]byte]string // content hash -> already-embedded media part's ppt/media/ basename; see mediaBasename
+	layoutIndexByType  map[LayoutType]int           // LayoutType -> its 1-indexed slideLayoutN.xml part, for AddSlide's WithLayout
+	notesMasterCreated bool                         // whether the single notes master part exists yet (created lazily by Slide.Notes)
 }
 
 // Option configures a Presentation at construction time, for use with New.
@@ -367,7 +368,7 @@ func (p *Presentation) AddSlide(opts ...SlideOption) *Slide {
 		RID: slideRID,
 	})
 
-	return &Slide{pres: p, path: path, cSld: cSld, spTree: spTree, nextShapeID: firstShapeID, layout: cfg.layout}
+	return &Slide{pres: p, num: n, path: path, cSld: cSld, spTree: spTree, nextShapeID: firstShapeID, layout: cfg.layout}
 }
 
 // addErr records a user-input validation error raised deep in a fluent

@@ -42,12 +42,14 @@ const firstShapeID = 2
 // value is not usable.
 type Slide struct {
 	pres         *Presentation
+	num          int    // this slide's 1-indexed position, used to name its notes slide (see Notes)
 	path         string // this slide's own part path, e.g. "ppt/slides/slide1.xml" — needed to own its media relationships
 	cSld         *CSld  // the slide's own p:cSld, so Background can set its Bg field after construction
 	spTree       *SpTree
 	nextShapeID  uint32
 	layout       LayoutType              // set by AddSlide from WithLayout — lets Title pick the right placeholder type for LayoutTitleSlide
 	placeholders map[placeholderKey]bool // type+idx pairs already placed, so AddPlaceholder can reject a duplicate
+	notesBody    *drawingml.TextBody     // the notes slide's body text body once Notes has created one, so a repeat Notes call appends
 }
 
 // placeholderKey identifies a placeholder by type+idx — the pair PowerPoint
