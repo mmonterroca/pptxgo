@@ -234,6 +234,55 @@ func main() {
 	// self-positioned placeholder, so it renders without a master hf entry.
 	s2.DateText("July 19, 2026").Footer("Acme — Confidential").SlideNumber()
 
+	// Third slide: a native diagram — a group of three shapes that move,
+	// resize, and rotate together in PowerPoint's own UI (Slide.AddGroup),
+	// linked by connectors bound to each shape's own connection sites
+	// (Slide.Connect) — unlike a plain AddShape(ShapeLine, ...) + arrowhead
+	// (the divider on slide 1), a bound connector follows its shapes when
+	// they move in PowerPoint. LibreOffice is NOT authoritative for a
+	// connector's binding, only its routing looks visually right there —
+	// open in real PowerPoint and drag a box to confirm the connector
+	// actually follows.
+	s3 := p.AddSlide()
+	s3.AddTextBox(pptx.Inches(1), pptx.Inches(0.5), pptx.Inches(8), pptx.Inches(0.8)).
+		AddParagraph().Text("Process Flow").Bold().FontSize(28).Font("Calibri").Color(pptx.RGB(0x1F, 0x49, 0x7D))
+
+	// The group's own bounding box roughly encloses its three members —
+	// AddGroup doesn't compute this automatically (see its own doc
+	// comment), so it's picked to fit the layout below.
+	flow := s3.AddGroup(pptx.Inches(0.8), pptx.Inches(1.8), pptx.Inches(10.4), pptx.Inches(1.4))
+	discovery := flow.AddShape(pptx.ShapeRoundRect, pptx.Inches(1), pptx.Inches(2), pptx.Inches(2), pptx.Inches(1)).
+		FillScheme(pptx.SchemeAccent1)
+	discovery.AddParagraph().Text("Discovery").Bold().FontSize(14).Font("Calibri").ColorScheme(pptx.SchemeLight1).Alignment(pptx.AlignCenter)
+	design := flow.AddShape(pptx.ShapeRoundRect, pptx.Inches(5), pptx.Inches(2), pptx.Inches(2), pptx.Inches(1)).
+		FillScheme(pptx.SchemeAccent1)
+	design.AddParagraph().Text("Design").Bold().FontSize(14).Font("Calibri").ColorScheme(pptx.SchemeLight1).Alignment(pptx.AlignCenter)
+	ship := flow.AddShape(pptx.ShapeRoundRect, pptx.Inches(9), pptx.Inches(2), pptx.Inches(2), pptx.Inches(1)).
+		FillScheme(pptx.SchemeAccent1)
+	ship.AddParagraph().Text("Ship").Bold().FontSize(14).Font("Calibri").ColorScheme(pptx.SchemeLight1).Alignment(pptx.AlignCenter)
+
+	// Bound connectors between group members — Discovery's own right-side
+	// connection site to Design's own left, and Design's right to Ship's
+	// left.
+	s3.Connect(discovery, pptx.SiteRight, design, pptx.SiteLeft, pptx.ConnStraight).
+		BorderScheme(pptx.SchemeDark2, 1.5).
+		ArrowEnd(pptx.ArrowheadTriangle)
+	s3.Connect(design, pptx.SiteRight, ship, pptx.SiteLeft, pptx.ConnStraight).
+		BorderScheme(pptx.SchemeDark2, 1.5).
+		ArrowEnd(pptx.ArrowheadTriangle)
+
+	// A shape OUTSIDE the group, connected to a shape INSIDE it — proves
+	// connector binding works by shape id (slide-global) regardless of
+	// group nesting, not just between top-level or same-group siblings.
+	gate := s3.AddShape(pptx.ShapeEllipse, pptx.Inches(4.5), pptx.Inches(4.2), pptx.Inches(3), pptx.Inches(1)).
+		FillScheme(pptx.SchemeAccent2).
+		BorderScheme(pptx.SchemeDark2, 1.0)
+	gate.AddParagraph().Text("Review Gate").Bold().FontSize(14).Font("Calibri").ColorScheme(pptx.SchemeLight1).Alignment(pptx.AlignCenter)
+	s3.Connect(design, pptx.SiteBottom, gate, pptx.SiteTop, pptx.ConnBent).
+		BorderScheme(pptx.SchemeDark2, 1.5).
+		LineJoin(pptx.LineJoinRound).
+		ArrowEnd(pptx.ArrowheadTriangle)
+
 	f, err := os.Create("01_basic_demo.pptx")
 	if err != nil {
 		log.Fatal(err)

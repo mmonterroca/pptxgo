@@ -175,10 +175,16 @@ type CNvPr struct {
 	Name    string   `xml:"name,attr"`
 }
 
-// GrpSpPr is p:grpSpPr, the shape tree's group shape properties. Empty for
-// the walking skeleton.
+// GrpSpPr is p:grpSpPr (CT_GroupShapeProperties): a group shape's own
+// properties. Xfrm is nil for the slide's root spTree (the walking
+// skeleton's own usage — the root group never needs a non-identity child
+// space) and set for a nested p:grpSp (see Slide.AddGroup), the only two
+// contexts this type is used in. Fill/effect/3d properties are out of
+// scope — a group's own visual properties are rarely set directly; its
+// member shapes carry their own.
 type GrpSpPr struct {
-	XMLName xml.Name `xml:"p:grpSpPr"`
+	XMLName xml.Name             `xml:"p:grpSpPr"`
+	Xfrm    *drawingml.GroupXfrm `xml:"a:xfrm,omitempty"`
 }
 
 // CNvSpPr is p:cNvSpPr, non-visual drawing properties specific to shapes.
@@ -233,18 +239,27 @@ func NewClrMapOvrInherit() *ClrMapOvr {
 	}{}}
 }
 
+// newNvGrpSpPr builds a p:nvGrpSpPr (CT_GroupShapeNonVisual) with the given
+// id and name — shared by NewEmptySpTree (the slide's own root group,
+// id=1, unnamed) and Slide.AddGroup (a nested p:grpSp, an allocated id and
+// a "Group N" name). Both contexts are otherwise identical: an always-empty
+// cNvGrpSpPr and nvPr.
+func newNvGrpSpPr(id uint32, name string) *NvGrpSpPr {
+	return &NvGrpSpPr{
+		CNvPr: &CNvPr{ID: id, Name: name},
+		CNvGrpSpPr: &struct {
+			XMLName xml.Name `xml:"p:cNvGrpSpPr"`
+		}{},
+		NvPr: &struct {
+			XMLName xml.Name `xml:"p:nvPr"`
+		}{},
+	}
+}
+
 // NewEmptySpTree returns a minimal, schema-valid shape tree with no shapes.
 func NewEmptySpTree() *SpTree {
 	return &SpTree{
-		NvGrpSpPr: &NvGrpSpPr{
-			CNvPr: &CNvPr{ID: 1, Name: ""},
-			CNvGrpSpPr: &struct {
-				XMLName xml.Name `xml:"p:cNvGrpSpPr"`
-			}{},
-			NvPr: &struct {
-				XMLName xml.Name `xml:"p:nvPr"`
-			}{},
-		},
-		GrpSpPr: &GrpSpPr{},
+		NvGrpSpPr: newNvGrpSpPr(1, ""),
+		GrpSpPr:   &GrpSpPr{},
 	}
 }

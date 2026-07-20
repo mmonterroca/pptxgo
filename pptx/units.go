@@ -330,3 +330,43 @@ const (
 	ShapeWave           PresetGeometry = "wave"
 	ShapeDoubleWave     PresetGeometry = "doubleWave"
 )
+
+// ConnectorType names a connector's own line geometry (a:prstGeom's prst
+// attribute on a p:cxnSp, the same ST_ShapeType namespace AddShape's
+// PresetGeometry draws from — but only the connector-shaped subset makes
+// sense on a p:cxnSp), for use with Slide.Connect.
+type ConnectorType string
+
+// Common connector geometries. Any other connector-shaped ST_ShapeType name
+// (e.g. "curvedConnector2") can still be passed as a plain
+// ConnectorType("name") — this is a representative subset, the same
+// convention PresetGeometry's own named constants use.
+const (
+	ConnStraight ConnectorType = "line"             // a direct line between the two connection sites
+	ConnBent     ConnectorType = "bentConnector3"   // right-angled routing, PowerPoint's own default connector style
+	ConnCurved   ConnectorType = "curvedConnector3" // curved routing
+)
+
+// ConnSite names a connection site on a shape's own geometry, for use with
+// Slide.Connect. Built-in autoshapes (rect, roundRect, ellipse, and the
+// other common diagram shapes) number their four cardinal connection sites
+// 0 (top), 1 (left), 2 (bottom), 3 (right), counter-clockwise from the top —
+// see drawingml.StCxn's own doc comment for how this was confirmed against
+// a real render rather than assumed from the schema.
+type ConnSite string
+
+// The four cardinal connection sites shared by rect/roundRect/ellipse and
+// most other built-in autoshapes.
+const (
+	SiteTop    ConnSite = "top"
+	SiteLeft   ConnSite = "left"
+	SiteBottom ConnSite = "bottom"
+	SiteRight  ConnSite = "right"
+)
+
+// connSiteIdx maps the four cardinal ConnSite names to their
+// ST_ShapeType-standard connection-site index (see ConnSite's own doc
+// comment).
+var connSiteIdx = map[ConnSite]uint32{
+	SiteTop: 0, SiteLeft: 1, SiteBottom: 2, SiteRight: 3,
+}

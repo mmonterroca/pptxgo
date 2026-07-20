@@ -41,6 +41,7 @@ import (
 type ShapeRef struct {
 	pres      *Presentation
 	slidePath string // the owning slide's part path, needed for per-slide hyperlink relationships (see Paragraph.Hyperlink)
+	id        uint32 // this shape's own p:cNvPr/@id, needed by Slide.Connect to bind a connector's stCxn/endCxn
 	body      *drawingml.TextBody
 	spPr      *SpPr
 }
@@ -123,16 +124,7 @@ func (sr *ShapeRef) BorderScheme(scheme SchemeColor, widthPoints float64) *Shape
 // the same contract requireXfrm gives Rotation/FlipH/FlipV. An unrecognized
 // preset is likewise recorded as an error and leaves the dash pattern unset.
 func (sr *ShapeRef) BorderDash(style DashStyle) *ShapeRef {
-	if sr.spPr.Ln == nil {
-		sr.pres.addErr(errors.InvalidArgument("BorderDash", "shape", "no outline",
-			"Border or BorderScheme must be called before BorderDash"))
-		return sr
-	}
-	if !IsValidDashStyle(style) {
-		sr.pres.addErr(errors.InvalidArgument("BorderDash", "style", style, "not a valid ST_PresetLineDashVal"))
-		return sr
-	}
-	sr.spPr.Ln.PrstDash = &drawingml.PrstDash{Val: string(style)}
+	applyBorderDash(sr.pres, sr.spPr, "BorderDash", style)
 	return sr
 }
 
@@ -142,16 +134,7 @@ func (sr *ShapeRef) BorderDash(style DashStyle) *ShapeRef {
 // unrecognized style is likewise recorded as an error and leaves the cap
 // unset.
 func (sr *ShapeRef) LineCap(style LineCapStyle) *ShapeRef {
-	if sr.spPr.Ln == nil {
-		sr.pres.addErr(errors.InvalidArgument("LineCap", "shape", "no outline",
-			"Border or BorderScheme must be called before LineCap"))
-		return sr
-	}
-	if !IsValidLineCapStyle(style) {
-		sr.pres.addErr(errors.InvalidArgument("LineCap", "style", style, "not a valid ST_LineCap value"))
-		return sr
-	}
-	sr.spPr.Ln.Cap = string(style)
+	applyLineCap(sr.pres, sr.spPr, "LineCap", style)
 	return sr
 }
 
@@ -162,27 +145,7 @@ func (sr *ShapeRef) LineCap(style LineCapStyle) *ShapeRef {
 // LineJoinMiter uses Office's own default miter limit (800%, matching the
 // built-in theme's own line styles — see themeFmtScheme).
 func (sr *ShapeRef) LineJoin(style LineJoinStyle) *ShapeRef {
-	if sr.spPr.Ln == nil {
-		sr.pres.addErr(errors.InvalidArgument("LineJoin", "shape", "no outline",
-			"Border or BorderScheme must be called before LineJoin"))
-		return sr
-	}
-	// Validate before clearing, so an invalid style leaves any
-	// previously-set join intact rather than silently wiping it — the same
-	// order LineCap and BorderDash use.
-	if style != LineJoinRound && style != LineJoinBevel && style != LineJoinMiter {
-		sr.pres.addErr(errors.InvalidArgument("LineJoin", "style", style, "not a valid line-join style"))
-		return sr
-	}
-	sr.spPr.Ln.Round, sr.spPr.Ln.Bevel, sr.spPr.Ln.Miter = nil, nil, nil
-	switch style {
-	case LineJoinRound:
-		sr.spPr.Ln.Round = &drawingml.LnRound{}
-	case LineJoinBevel:
-		sr.spPr.Ln.Bevel = &drawingml.LnBevel{}
-	case LineJoinMiter:
-		sr.spPr.Ln.Miter = &drawingml.LnMiter{Lim: 800000}
-	}
+	applyLineJoin(sr.pres, sr.spPr, "LineJoin", style)
 	return sr
 }
 
@@ -194,7 +157,7 @@ func (sr *ShapeRef) LineJoin(style LineJoinStyle) *ShapeRef {
 // contract. Size uses Office's own default ("med") for both width and
 // length.
 func (sr *ShapeRef) ArrowStart(t ArrowheadType) *ShapeRef {
-	end, ok := sr.arrowEnd("ArrowStart", t)
+	end, ok := buildArrowEnd(sr.pres, sr.spPr, "ArrowStart", t)
 	if !ok {
 		return sr
 	}
@@ -205,7 +168,7 @@ func (sr *ShapeRef) ArrowStart(t ArrowheadType) *ShapeRef {
 // ArrowEnd is ArrowStart's counterpart for the end of the shape's outline
 // path.
 func (sr *ShapeRef) ArrowEnd(t ArrowheadType) *ShapeRef {
-	end, ok := sr.arrowEnd("ArrowEnd", t)
+	end, ok := buildArrowEnd(sr.pres, sr.spPr, "ArrowEnd", t)
 	if !ok {
 		return sr
 	}
@@ -213,19 +176,75 @@ func (sr *ShapeRef) ArrowEnd(t ArrowheadType) *ShapeRef {
 	return sr
 }
 
-// arrowEnd is the shared guard-and-build for ArrowStart/ArrowEnd: it
-// requires a prior Border (the same contract BorderDash/LineCap give) and
-// rejects an unrecognized ST_LineEndType (the same validation LineCap does
-// for its own enum), returning ok=false in either case after recording the
-// error on the presentation.
-func (sr *ShapeRef) arrowEnd(op string, t ArrowheadType) (*drawingml.LineEnd, bool) {
-	if sr.spPr.Ln == nil {
-		sr.pres.addErr(errors.InvalidArgument(op, "shape", "no outline",
+// applyBorderDash, applyLineCap, applyLineJoin, and buildArrowEnd are the
+// shared guard-and-mutate cores of BorderDash/LineCap/LineJoin/ArrowStart/
+// ArrowEnd, shared by ShapeRef and ConnectorRef (pptx/connector.go) — a
+// connector's own line styling is otherwise identical to a shape's, but
+// ConnectorRef is a distinct type (not a ShapeRef alias) since a connector
+// has no txBody for AddParagraph and friends to target. Each guards that
+// Border/BorderScheme has already given spPr an outline to style (the same
+// contract requireXfrm gives Rotation/FlipH/FlipV) and validates its own
+// enum, recording an error on pres and leaving the target field unset on
+// either failure.
+
+func applyBorderDash(pres *Presentation, spPr *SpPr, op string, style DashStyle) {
+	if spPr.Ln == nil {
+		pres.addErr(errors.InvalidArgument(op, "shape", "no outline",
+			"Border or BorderScheme must be called before "+op))
+		return
+	}
+	if !IsValidDashStyle(style) {
+		pres.addErr(errors.InvalidArgument(op, "style", style, "not a valid ST_PresetLineDashVal"))
+		return
+	}
+	spPr.Ln.PrstDash = &drawingml.PrstDash{Val: string(style)}
+}
+
+func applyLineCap(pres *Presentation, spPr *SpPr, op string, style LineCapStyle) {
+	if spPr.Ln == nil {
+		pres.addErr(errors.InvalidArgument(op, "shape", "no outline",
+			"Border or BorderScheme must be called before "+op))
+		return
+	}
+	if !IsValidLineCapStyle(style) {
+		pres.addErr(errors.InvalidArgument(op, "style", style, "not a valid ST_LineCap value"))
+		return
+	}
+	spPr.Ln.Cap = string(style)
+}
+
+func applyLineJoin(pres *Presentation, spPr *SpPr, op string, style LineJoinStyle) {
+	if spPr.Ln == nil {
+		pres.addErr(errors.InvalidArgument(op, "shape", "no outline",
+			"Border or BorderScheme must be called before "+op))
+		return
+	}
+	// Validate before clearing, so an invalid style leaves any
+	// previously-set join intact rather than silently wiping it — the same
+	// order LineCap and BorderDash use.
+	if style != LineJoinRound && style != LineJoinBevel && style != LineJoinMiter {
+		pres.addErr(errors.InvalidArgument(op, "style", style, "not a valid line-join style"))
+		return
+	}
+	spPr.Ln.Round, spPr.Ln.Bevel, spPr.Ln.Miter = nil, nil, nil
+	switch style {
+	case LineJoinRound:
+		spPr.Ln.Round = &drawingml.LnRound{}
+	case LineJoinBevel:
+		spPr.Ln.Bevel = &drawingml.LnBevel{}
+	case LineJoinMiter:
+		spPr.Ln.Miter = &drawingml.LnMiter{Lim: 800000}
+	}
+}
+
+func buildArrowEnd(pres *Presentation, spPr *SpPr, op string, t ArrowheadType) (*drawingml.LineEnd, bool) {
+	if spPr.Ln == nil {
+		pres.addErr(errors.InvalidArgument(op, "shape", "no outline",
 			"Border or BorderScheme must be called before "+op))
 		return nil, false
 	}
 	if !IsValidArrowheadType(t) {
-		sr.pres.addErr(errors.InvalidArgument(op, "type", t, "not a valid ST_LineEndType value"))
+		pres.addErr(errors.InvalidArgument(op, "type", t, "not a valid ST_LineEndType value"))
 		return nil, false
 	}
 	return &drawingml.LineEnd{Type: string(t), W: "med", Len: "med"}, true
