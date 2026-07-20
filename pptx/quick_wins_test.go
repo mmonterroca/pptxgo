@@ -328,6 +328,22 @@ func TestGradientFill_StopTintShadeOutOfRangeAccumulatesError(t *testing.T) {
 	}
 }
 
+func TestGradientFill_StopWithBothTintAndShadeAccumulatesError(t *testing.T) {
+	// Regression: Tint and Shade together lighten-then-darken to a muddied
+	// color; the documented "at most one" contract must be enforced, not
+	// silently emitted as both a:tint and a:shade.
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		GradientFill(0,
+			GradientStop{Scheme: SchemeAccent2, Pos: 0, Tint: 30, Shade: 20},
+			GradientStop{Color: RGB(0xFF, 0xFF, 0xFF), Pos: 100})
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated both-Tint-and-Shade error")
+	}
+}
+
 // --- line cap / join / arrowheads --------------------------------------------
 
 func TestLineCap_SetsAttrAfterBorder(t *testing.T) {
@@ -415,6 +431,41 @@ func TestArrowEnd_BeforeBorderAccumulatesError(t *testing.T) {
 
 	if err := p.Save(&bytes.Buffer{}); err == nil {
 		t.Fatal("expected Save to return the accumulated no-outline error")
+	}
+}
+
+func TestArrowEnd_InvalidTypeAccumulatesError(t *testing.T) {
+	// Regression: an unrecognized ST_LineEndType must be rejected (like
+	// LineCap's own enum check), not written straight into a schema-invalid
+	// a:tailEnd/@type.
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeLine, Inches(1), Inches(1), Emu(1), Inches(2)).
+		Border(RGB(0, 0, 0), 1).
+		ArrowEnd(ArrowheadType("arrowhead"))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated invalid-arrowhead-type error")
+	}
+}
+
+func TestLineJoin_InvalidStylePreservesPriorJoin(t *testing.T) {
+	// Regression: an invalid style must not wipe a previously-set join —
+	// LineJoin validates before clearing, matching LineCap. The accumulated
+	// error gates Save, so the surviving join is asserted on the in-memory
+	// struct directly rather than through the emitted XML.
+	p := New()
+	s := p.AddSlide()
+	sh := s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		Border(RGB(0, 0, 0), 2).
+		LineJoin(LineJoinRound).
+		LineJoin(LineJoinStyle("bad"))
+
+	if sh.spPr.Ln.Round == nil {
+		t.Error("expected the prior round join to survive an invalid LineJoin call")
+	}
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Error("expected the invalid LineJoin to still record an error on Save")
 	}
 }
 

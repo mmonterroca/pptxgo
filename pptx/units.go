@@ -255,6 +255,18 @@ const (
 	ArrowheadArrow    ArrowheadType = "arrow"
 )
 
+// validArrowheadTypes is the complete ST_LineEndType enumeration.
+var validArrowheadTypes = map[ArrowheadType]bool{
+	ArrowheadNone: true, ArrowheadTriangle: true, ArrowheadStealth: true,
+	ArrowheadDiamond: true, ArrowheadOval: true, ArrowheadArrow: true,
+}
+
+// IsValidArrowheadType reports whether t is one of ST_LineEndType's 6
+// defined values.
+func IsValidArrowheadType(t ArrowheadType) bool {
+	return validArrowheadTypes[t]
+}
+
 // TableCellSide names which edge (or diagonal) of a table cell
 // TableCell.Border/BorderScheme sets an outline on (a:tcPr's six per-side
 // line children).

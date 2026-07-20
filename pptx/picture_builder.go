@@ -40,7 +40,7 @@ type PictureRef struct {
 // EMU range). An out-of-range width is recorded as an error on the
 // presentation (returned by Save) and leaves the border unset.
 func (p *PictureRef) Border(c drawingml.Color, widthPoints float64) *PictureRef {
-	p.spPr.Ln = newLn(p.pres, c, widthPoints)
+	p.spPr.Ln = newLn(p.pres, "Border", c, widthPoints)
 	return p
 }
 
@@ -50,7 +50,7 @@ func (p *PictureRef) Shadow(c drawingml.Color, alphaPercent float64) *PictureRef
 	if !ok {
 		return p
 	}
-	p.effectLst().OuterShdw = shdw
+	effectLstOf(p.spPr).OuterShdw = shdw
 	return p
 }
 
@@ -60,7 +60,7 @@ func (p *PictureRef) Glow(c drawingml.Color, radiusPoints float64) *PictureRef {
 	if !ok {
 		return p
 	}
-	p.effectLst().Glow = glow
+	effectLstOf(p.spPr).Glow = glow
 	return p
 }
 
@@ -70,7 +70,7 @@ func (p *PictureRef) Reflection(startOpacityPercent float64) *PictureRef {
 	if !ok {
 		return p
 	}
-	p.effectLst().Reflection = refl
+	effectLstOf(p.spPr).Reflection = refl
 	return p
 }
 
@@ -80,14 +80,6 @@ func (p *PictureRef) SoftEdges(radiusPoints float64) *PictureRef {
 	if !ok {
 		return p
 	}
-	p.effectLst().SoftEdge = &drawingml.SoftEdge{Rad: rad}
+	effectLstOf(p.spPr).SoftEdge = &drawingml.SoftEdge{Rad: rad}
 	return p
-}
-
-// effectLst lazily allocates and returns the picture's a:effectLst.
-func (p *PictureRef) effectLst() *drawingml.EffectLst {
-	if p.spPr.EffectLst == nil {
-		p.spPr.EffectLst = &drawingml.EffectLst{}
-	}
-	return p.spPr.EffectLst
 }

@@ -295,7 +295,7 @@ func (c *TableCell) Border(side TableCellSide, color drawingml.Color, widthPoint
 		c.pres.addErr(errors.InvalidArgument("TableCell.Border", "side", side, "not a valid table-cell border side"))
 		return c
 	}
-	w, ok := validatedLineWidthEMU(c.pres, widthPoints)
+	w, ok := validatedLineWidthEMU(c.pres, "TableCell.Border", widthPoints)
 	if !ok {
 		return c
 	}
@@ -311,7 +311,7 @@ func (c *TableCell) BorderScheme(side TableCellSide, scheme SchemeColor, widthPo
 		c.pres.addErr(errors.InvalidArgument("TableCell.BorderScheme", "side", side, "not a valid table-cell border side"))
 		return c
 	}
-	w, ok := validatedLineWidthEMU(c.pres, widthPoints)
+	w, ok := validatedLineWidthEMU(c.pres, "TableCell.BorderScheme", widthPoints)
 	if !ok {
 		return c
 	}

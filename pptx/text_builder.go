@@ -104,7 +104,7 @@ func (sr *ShapeRef) NoFill() *ShapeRef {
 // EMU range). An out-of-range width is recorded as an error on the
 // presentation (returned by Save) and leaves the border unset.
 func (sr *ShapeRef) Border(c drawingml.Color, widthPoints float64) *ShapeRef {
-	sr.spPr.Ln = newLn(sr.pres, c, widthPoints)
+	sr.spPr.Ln = newLn(sr.pres, "Border", c, widthPoints)
 	return sr
 }
 
@@ -112,7 +112,7 @@ func (sr *ShapeRef) Border(c drawingml.Color, widthPoints float64) *ShapeRef {
 // scheme slot (e.g. SchemeAccent1), at the given width in points — see
 // Border for the width's valid range.
 func (sr *ShapeRef) BorderScheme(scheme SchemeColor, widthPoints float64) *ShapeRef {
-	sr.spPr.Ln = newLnScheme(sr.pres, scheme, widthPoints)
+	sr.spPr.Ln = newLnScheme(sr.pres, "BorderScheme", scheme, widthPoints)
 	return sr
 }
 
@@ -167,6 +167,13 @@ func (sr *ShapeRef) LineJoin(style LineJoinStyle) *ShapeRef {
 			"Border or BorderScheme must be called before LineJoin"))
 		return sr
 	}
+	// Validate before clearing, so an invalid style leaves any
+	// previously-set join intact rather than silently wiping it — the same
+	// order LineCap and BorderDash use.
+	if style != LineJoinRound && style != LineJoinBevel && style != LineJoinMiter {
+		sr.pres.addErr(errors.InvalidArgument("LineJoin", "style", style, "not a valid line-join style"))
+		return sr
+	}
 	sr.spPr.Ln.Round, sr.spPr.Ln.Bevel, sr.spPr.Ln.Miter = nil, nil, nil
 	switch style {
 	case LineJoinRound:
@@ -175,8 +182,6 @@ func (sr *ShapeRef) LineJoin(style LineJoinStyle) *ShapeRef {
 		sr.spPr.Ln.Bevel = &drawingml.LnBevel{}
 	case LineJoinMiter:
 		sr.spPr.Ln.Miter = &drawingml.LnMiter{Lim: 800000}
-	default:
-		sr.pres.addErr(errors.InvalidArgument("LineJoin", "style", style, "not a valid line-join style"))
 	}
 	return sr
 }
@@ -189,25 +194,41 @@ func (sr *ShapeRef) LineJoin(style LineJoinStyle) *ShapeRef {
 // contract. Size uses Office's own default ("med") for both width and
 // length.
 func (sr *ShapeRef) ArrowStart(t ArrowheadType) *ShapeRef {
-	if sr.spPr.Ln == nil {
-		sr.pres.addErr(errors.InvalidArgument("ArrowStart", "shape", "no outline",
-			"Border or BorderScheme must be called before ArrowStart"))
+	end, ok := sr.arrowEnd("ArrowStart", t)
+	if !ok {
 		return sr
 	}
-	sr.spPr.Ln.HeadEnd = &drawingml.LineEnd{Type: string(t), W: "med", Len: "med"}
+	sr.spPr.Ln.HeadEnd = end
 	return sr
 }
 
 // ArrowEnd is ArrowStart's counterpart for the end of the shape's outline
 // path.
 func (sr *ShapeRef) ArrowEnd(t ArrowheadType) *ShapeRef {
-	if sr.spPr.Ln == nil {
-		sr.pres.addErr(errors.InvalidArgument("ArrowEnd", "shape", "no outline",
-			"Border or BorderScheme must be called before ArrowEnd"))
+	end, ok := sr.arrowEnd("ArrowEnd", t)
+	if !ok {
 		return sr
 	}
-	sr.spPr.Ln.TailEnd = &drawingml.LineEnd{Type: string(t), W: "med", Len: "med"}
+	sr.spPr.Ln.TailEnd = end
 	return sr
+}
+
+// arrowEnd is the shared guard-and-build for ArrowStart/ArrowEnd: it
+// requires a prior Border (the same contract BorderDash/LineCap give) and
+// rejects an unrecognized ST_LineEndType (the same validation LineCap does
+// for its own enum), returning ok=false in either case after recording the
+// error on the presentation.
+func (sr *ShapeRef) arrowEnd(op string, t ArrowheadType) (*drawingml.LineEnd, bool) {
+	if sr.spPr.Ln == nil {
+		sr.pres.addErr(errors.InvalidArgument(op, "shape", "no outline",
+			"Border or BorderScheme must be called before "+op))
+		return nil, false
+	}
+	if !IsValidArrowheadType(t) {
+		sr.pres.addErr(errors.InvalidArgument(op, "type", t, "not a valid ST_LineEndType value"))
+		return nil, false
+	}
+	return &drawingml.LineEnd{Type: string(t), W: "med", Len: "med"}, true
 }
 
 // Shadow adds a soft drop shadow behind the shape, using Office's own
@@ -220,7 +241,7 @@ func (sr *ShapeRef) Shadow(c drawingml.Color, alphaPercent float64) *ShapeRef {
 	if !ok {
 		return sr
 	}
-	sr.effectLst().OuterShdw = shdw
+	effectLstOf(sr.spPr).OuterShdw = shdw
 	return sr
 }
 
@@ -233,7 +254,7 @@ func (sr *ShapeRef) Glow(c drawingml.Color, radiusPoints float64) *ShapeRef {
 	if !ok {
 		return sr
 	}
-	sr.effectLst().Glow = glow
+	effectLstOf(sr.spPr).Glow = glow
 	return sr
 }
 
@@ -253,7 +274,7 @@ func (sr *ShapeRef) Reflection(startOpacityPercent float64) *ShapeRef {
 	if !ok {
 		return sr
 	}
-	sr.effectLst().Reflection = refl
+	effectLstOf(sr.spPr).Reflection = refl
 	return sr
 }
 
@@ -265,16 +286,19 @@ func (sr *ShapeRef) SoftEdges(radiusPoints float64) *ShapeRef {
 	if !ok {
 		return sr
 	}
-	sr.effectLst().SoftEdge = &drawingml.SoftEdge{Rad: rad}
+	effectLstOf(sr.spPr).SoftEdge = &drawingml.SoftEdge{Rad: rad}
 	return sr
 }
 
-// effectLst lazily allocates and returns the shape's a:effectLst.
-func (sr *ShapeRef) effectLst() *drawingml.EffectLst {
-	if sr.spPr.EffectLst == nil {
-		sr.spPr.EffectLst = &drawingml.EffectLst{}
+// effectLstOf lazily allocates and returns spPr's a:effectLst, shared by
+// ShapeRef's and PictureRef's effect setters (Shadow/Glow/Reflection/
+// SoftEdges) — both only ever touch their common *SpPr, so the lazy-alloc
+// lives here once rather than duplicated per builder type.
+func effectLstOf(spPr *SpPr) *drawingml.EffectLst {
+	if spPr.EffectLst == nil {
+		spPr.EffectLst = &drawingml.EffectLst{}
 	}
-	return sr.spPr.EffectLst
+	return spPr.EffectLst
 }
 
 // Rotation sets the shape's rotation, in degrees clockwise (e.g. 45, -90;
@@ -428,9 +452,10 @@ const maxLineWidthPoints = 1584
 // newLn builds a solid-color a:ln of the given width in points, shared by
 // ShapeRef.Border and PictureRef.Border. Point-to-EMU conversion happens
 // here, at the fluent-API boundary, exactly once — the same pattern
-// Paragraph.FontSize uses for centipoints.
-func newLn(pres *Presentation, c drawingml.Color, widthPoints float64) *drawingml.Ln {
-	w, ok := validatedLineWidthEMU(pres, widthPoints)
+// Paragraph.FontSize uses for centipoints. op names the calling method for
+// the error a bad width records.
+func newLn(pres *Presentation, op string, c drawingml.Color, widthPoints float64) *drawingml.Ln {
+	w, ok := validatedLineWidthEMU(pres, op, widthPoints)
 	if !ok {
 		return nil
 	}
@@ -439,8 +464,8 @@ func newLn(pres *Presentation, c drawingml.Color, widthPoints float64) *drawingm
 
 // newLnScheme is newLn's theme-color counterpart, shared by
 // ShapeRef.BorderScheme.
-func newLnScheme(pres *Presentation, scheme SchemeColor, widthPoints float64) *drawingml.Ln {
-	w, ok := validatedLineWidthEMU(pres, widthPoints)
+func newLnScheme(pres *Presentation, op string, scheme SchemeColor, widthPoints float64) *drawingml.Ln {
+	w, ok := validatedLineWidthEMU(pres, op, widthPoints)
 	if !ok {
 		return nil
 	}
@@ -452,13 +477,15 @@ func newLnScheme(pres *Presentation, scheme SchemeColor, widthPoints float64) *d
 // issue FontSize's centipoint conversion already guards against), or
 // records an out-of-range width as an error on pres and returns ok=false,
 // leaving the caller's Ln field unset rather than emitting a
-// schema-invalid a:ln/@w. NaN fails both bounds comparisons below (every
+// schema-invalid a:ln/@w. op names the calling method (Border,
+// BorderScheme, TableCell.Border, ...) so the error points at the method
+// the user actually called. NaN fails both bounds comparisons below (every
 // comparison against NaN is false), so it is checked explicitly first —
 // without that check it would silently reach the int() conversion, which
 // produces an implementation-defined result for a non-finite float64.
-func validatedLineWidthEMU(pres *Presentation, widthPoints float64) (emu int, ok bool) {
+func validatedLineWidthEMU(pres *Presentation, op string, widthPoints float64) (emu int, ok bool) {
 	if math.IsNaN(widthPoints) || widthPoints < 0 || widthPoints > maxLineWidthPoints {
-		pres.addErr(errors.InvalidArgument("Border", "widthPoints", widthPoints,
+		pres.addErr(errors.InvalidArgument(op, "widthPoints", widthPoints,
 			"must be between 0 and 1584 (ST_LineWidth's 0-20,116,800 EMU range)"))
 		return 0, false
 	}
@@ -561,6 +588,10 @@ func newGradFill(pres *Presentation, angleDegrees float64, stops []GradientStop)
 		}
 		if math.IsNaN(s.Tint) || s.Tint < 0 || s.Tint > 100 || math.IsNaN(s.Shade) || s.Shade < 0 || s.Shade > 100 {
 			pres.addErr(errors.InvalidArgument("GradientFill", "stops[].Tint/Shade", []float64{s.Tint, s.Shade}, "must each be in [0, 100]"))
+			return nil, false
+		}
+		if s.Tint > 0 && s.Shade > 0 {
+			pres.addErr(errors.InvalidArgument("GradientFill", "stops[].Tint/Shade", []float64{s.Tint, s.Shade}, "a stop sets at most one of Tint or Shade — both together lighten then darken to a muddied color"))
 			return nil, false
 		}
 		gs[i] = &drawingml.Gs{Pos: int(math.Round(s.Pos * 1000))}
