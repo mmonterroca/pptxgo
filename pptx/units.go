@@ -151,9 +151,15 @@ const (
 // along the gradient's axis. Pos is a percentage from 0 (the gradient's
 // start) to 100 (its end) — supply stops in ascending Pos order for a
 // well-formed gradient; nothing enforces that order itself.
+//
+// The stop's color is either an explicit RGB value (Color) or a theme color
+// slot (Scheme). When Scheme is non-empty it takes precedence and the
+// gradient stop follows the active theme (so a themed gradient recolors with
+// WithTheme, just like FillScheme); leave Scheme empty ("") to use Color.
 type GradientStop struct {
-	Color drawingml.Color
-	Pos   float64
+	Color  drawingml.Color
+	Scheme SchemeColor
+	Pos    float64
 }
 
 // DashStyle names a preset line-dash pattern (a:prstDash's val attribute,
