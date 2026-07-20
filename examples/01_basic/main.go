@@ -31,6 +31,7 @@ import (
 	"image/png"
 	"log"
 	"os"
+	"time"
 
 	"github.com/mmonterroca/pptxgo/pptx"
 )
@@ -70,21 +71,41 @@ func brandTheme() pptx.Theme {
 }
 
 func main() {
-	p := pptx.New(pptx.WithTheme(brandTheme()))
+	// A fixed timestamp keeps the generated file deterministic (so the
+	// validated demo output is reproducible); real callers would use
+	// time.Now().
+	authored := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
+	p := pptx.New(
+		pptx.WithTheme(brandTheme()),
+		pptx.WithMetadata(pptx.Metadata{
+			Title:    "Quarterly Results",
+			Creator:  "pptxgo demo",
+			Subject:  "Q3 business review",
+			Keywords: "quarterly, revenue, demo",
+			Company:  "pptxgo",
+			Created:  authored,
+			Modified: authored,
+		}),
+	)
 
 	s := p.AddSlide().BackgroundScheme(pptx.SchemeLight2)
 
 	badge := s.AddShape(pptx.ShapeRoundRect, pptx.Inches(9.5), pptx.Inches(1), pptx.Inches(1.8), pptx.Inches(0.6)).
 		FillScheme(pptx.SchemeAccent2).
-		BorderScheme(pptx.SchemeDark2, 1.0)
+		BorderScheme(pptx.SchemeDark2, 1.0).
+		// Adjust the roundRect's corner-radius handle to 30% of the short side.
+		Adjust("adj", 30000)
 	badge.AddParagraph().
 		Text("Q3 Update").Bold().FontSize(14).Font("Calibri").ColorScheme(pptx.SchemeLight1).
 		Alignment(pptx.AlignCenter)
 
+	// Gradient stops referenced by theme slot (not hardcoded RGB), so this
+	// badge recolors along with the rest of the deck when the theme changes.
 	trending := s.AddShape(pptx.ShapeRoundRect, pptx.Inches(11.5), pptx.Inches(1), pptx.Inches(1.6), pptx.Inches(0.6)).
+		Adjust("adj", 30000).
 		GradientFill(45,
-			pptx.GradientStop{Color: pptx.RGB(0xED, 0x7D, 0x31), Pos: 0},
-			pptx.GradientStop{Color: pptx.RGB(0xFF, 0xC0, 0x00), Pos: 100})
+			pptx.GradientStop{Scheme: pptx.SchemeAccent2, Pos: 0},
+			pptx.GradientStop{Scheme: pptx.SchemeAccent4, Pos: 100})
 	trending.AddParagraph().
 		Text("Trending Up").Bold().FontSize(14).Font("Calibri").Color(pptx.RGB(0xFF, 0xFF, 0xFF)).
 		Alignment(pptx.AlignCenter)
@@ -125,7 +146,7 @@ func main() {
 		Bullet("•", "Arial").Indent(18, -18).SpaceAfter(6)
 	list.AddParagraph().
 		Text("Next: expand partner channel").FontSize(16).Font("Calibri").
-		NumberedBullet(pptx.NumArabicPeriod).Indent(18, -18).Level(1)
+		NumberedBulletFrom(pptx.NumArabicPeriod, 2).Indent(18, -18).Level(1)
 	list.AddParagraph().
 		Text("See the full report").FontSize(16).Font("Calibri").
 		ColorScheme(pptx.SchemeHyperlink).Underline().Hyperlink("https://example.com/quarterly-report").
@@ -135,7 +156,11 @@ func main() {
 	tbl.ColumnWidth(0, pptx.Inches(2.4))
 	headers := []string{"Region", "Q3 Revenue", "YoY"}
 	for c, h := range headers {
-		tbl.Cell(0, c).Text(h).Bold()
+		cell := tbl.Cell(0, c)
+		// Branded header row: theme-slot cell fill + light text + centered
+		// vertically, all via TableCell's TcPr — the fills follow WithTheme.
+		cell.FillScheme(pptx.SchemeAccent1).Anchor(pptx.AnchorMiddle)
+		cell.Text(h).Bold().ColorScheme(pptx.SchemeLight1)
 	}
 	rows := [][]string{
 		{"North America", "$4.2M", "+9%"},

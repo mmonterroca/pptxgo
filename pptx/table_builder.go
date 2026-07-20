@@ -240,3 +240,47 @@ func (c *TableCell) AddParagraph() *Paragraph {
 func (c *TableCell) Text(s string) *Paragraph {
 	return c.AddParagraph().Text(s)
 }
+
+// tcPr lazily allocates and returns the cell's a:tcPr.
+func (c *TableCell) tcPr() *drawingml.TcPr {
+	if c.tc.TcPr == nil {
+		c.tc.TcPr = &drawingml.TcPr{}
+	}
+	return c.tc.TcPr
+}
+
+// Fill sets the cell's background to a solid color, overriding the fill the
+// table style would otherwise give it.
+func (c *TableCell) Fill(color drawingml.Color) *TableCell {
+	p := c.tcPr()
+	p.NoFill = nil
+	p.SolidFill = drawingml.NewSolidFillRGB(color)
+	return c
+}
+
+// FillScheme sets the cell's background to a theme color, referenced by
+// scheme slot (e.g. SchemeAccent1) rather than an explicit RGB value — so a
+// branded table's cell fills follow WithTheme along with the rest of the deck.
+func (c *TableCell) FillScheme(scheme SchemeColor) *TableCell {
+	p := c.tcPr()
+	p.NoFill = nil
+	p.SolidFill = drawingml.NewSolidFillScheme(string(scheme))
+	return c
+}
+
+// NoFill gives the cell an explicit "no fill", so the slide background (or a
+// cell behind it) shows through — distinct from never setting a fill, which
+// lets the table style's banding apply.
+func (c *TableCell) NoFill() *TableCell {
+	p := c.tcPr()
+	p.SolidFill = nil
+	p.NoFill = &drawingml.NoFill{}
+	return c
+}
+
+// Anchor sets the cell's vertical text alignment within its own bounds
+// (AnchorTop, AnchorMiddle, or AnchorBottom).
+func (c *TableCell) Anchor(a VerticalAnchor) *TableCell {
+	c.tcPr().Anchor = string(a)
+	return c
+}

@@ -81,19 +81,32 @@ type Tr struct {
 	Tcs     []*Tc    `xml:"a:tc,omitempty"`
 }
 
-// Tc is a:tc (CT_TableCell): one table cell. TxBody comes before the
+// Tc is a:tc (CT_TableCell): one table cell. TxBody and TcPr come before the
 // merge/span attributes in document order (they're attributes, so actual
-// attribute order doesn't affect validity) but after it in the schema's
-// own element sequence — TxBody is a:tc's only modeled child element.
-// GridSpan/RowSpan greater than 1, and HMerge/VMerge, mark a cell as the
-// anchor or continuation of a horizontal/vertical merge; their zero values
-// (1, false, false) mean "not merged", the common case, and are the only
-// case pptx.Slide.AddTable's builder currently produces.
+// attribute order doesn't affect validity) but the two child elements follow
+// the schema's own sequence: txBody, then tcPr. GridSpan/RowSpan greater than
+// 1, and HMerge/VMerge, mark a cell as the anchor or continuation of a
+// horizontal/vertical merge; their zero values (1, false, false) mean "not
+// merged", the common case.
 type Tc struct {
 	XMLName  xml.Name  `xml:"a:tc"`
 	TxBody   *TextBody `xml:"a:txBody,omitempty"`
+	TcPr     *TcPr     `xml:"a:tcPr,omitempty"`
 	GridSpan int       `xml:"gridSpan,attr,omitempty"`
 	RowSpan  int       `xml:"rowSpan,attr,omitempty"`
 	HMerge   OnOff     `xml:"hMerge,attr,omitempty"`
 	VMerge   OnOff     `xml:"vMerge,attr,omitempty"`
+}
+
+// TcPr is a:tcPr (CT_TableCellProperties): a table cell's own visual
+// properties. Only the vertical text anchor and cell fill are modeled here
+// (cell margins, per-side borders, and the other CT_TableCellProperties
+// members are left for a later phase). Field/attribute order mirrors the
+// schema: the anchor attribute, then the fill child (a:solidFill or
+// a:noFill, the mutually-exclusive fill group).
+type TcPr struct {
+	XMLName   xml.Name   `xml:"a:tcPr"`
+	Anchor    string     `xml:"anchor,attr,omitempty"` // ST_TextAnchoringType: t/ctr/b
+	SolidFill *SolidFill `xml:"a:solidFill,omitempty"`
+	NoFill    *NoFill    `xml:"a:noFill,omitempty"`
 }

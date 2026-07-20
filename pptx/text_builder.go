@@ -26,6 +26,7 @@ package pptx
 
 import (
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/mmonterroca/pptxgo/drawingml"
@@ -179,6 +180,39 @@ func (sr *ShapeRef) FlipV() *ShapeRef {
 	return sr
 }
 
+// Adjust sets a preset geometry's adjust value (an a:avLst/a:gd guide) — the
+// parametric handle that reshapes some autoshapes, e.g. the corner radius of
+// a ShapeRoundRect or the notch depth of a ShapeChevron. name is the guide's
+// name ("adj" for a single-handle shape, or "adj1"/"adj2"/... for shapes with
+// several) and value is its adjust coordinate — for the common
+// fraction-valued handles, in thousandths of a percent (e.g. 25000 rounds a
+// ShapeRoundRect's corners to 25% of the shorter side). Repeated calls append
+// distinct guides; calling Adjust again with the same name overwrites it.
+//
+// A placeholder that inherits its geometry (Slide.AddPlaceholder) has no
+// preset geometry of its own to adjust — calling Adjust on it records an
+// error on the presentation (returned by Save), the same contract Rotation
+// gives for inherited transforms.
+func (sr *ShapeRef) Adjust(name string, value int) *ShapeRef {
+	if sr.spPr.PrstGeom == nil {
+		sr.pres.addErr(errors.InvalidArgument("Adjust", "shape", "placeholder",
+			"a placeholder with inherited geometry has no preset geometry to adjust"))
+		return sr
+	}
+	if sr.spPr.PrstGeom.AvLst == nil {
+		sr.spPr.PrstGeom.AvLst = &drawingml.AvLst{}
+	}
+	fmla := "val " + strconv.Itoa(value)
+	for _, gd := range sr.spPr.PrstGeom.AvLst.Gd {
+		if gd.Name == name {
+			gd.Fmla = fmla
+			return sr
+		}
+	}
+	sr.spPr.PrstGeom.AvLst.Gd = append(sr.spPr.PrstGeom.AvLst.Gd, &drawingml.Gd{Name: name, Fmla: fmla})
+	return sr
+}
+
 // requireXfrm reports whether sr already has an a:xfrm to set a transform
 // attribute on. A nil Xfrm means the shape is a placeholder that
 // deliberately omits its own a:xfrm to inherit position/size from its
@@ -316,7 +350,12 @@ func newGradFill(pres *Presentation, angleDegrees float64, stops []GradientStop)
 			pres.addErr(errors.InvalidArgument("GradientFill", "stops[].Pos", s.Pos, "must be in [0, 100]"))
 			return nil, false
 		}
-		gs[i] = &drawingml.Gs{Pos: int(math.Round(s.Pos * 1000)), SrgbClr: &drawingml.SrgbClr{Val: drawingml.ToHex(s.Color)}}
+		gs[i] = &drawingml.Gs{Pos: int(math.Round(s.Pos * 1000))}
+		if s.Scheme != "" {
+			gs[i].SchemeClr = &drawingml.SchemeClr{Val: string(s.Scheme)}
+		} else {
+			gs[i].SrgbClr = &drawingml.SrgbClr{Val: drawingml.ToHex(s.Color)}
+		}
 	}
 
 	// a:lin/@ang is ST_PositiveFixedAngle — schema-constrained to
@@ -529,10 +568,27 @@ func (pg *Paragraph) Bullet(char, font string) *Paragraph {
 }
 
 // NumberedBullet sets this paragraph's bullet to an automatically numbered
-// scheme (e.g. NumArabicPeriod for "1.", "2.", ...).
+// scheme (e.g. NumArabicPeriod for "1.", "2.", ...), starting at 1.
 func (pg *Paragraph) NumberedBullet(scheme NumberingScheme) *Paragraph {
 	pg.clearBullet()
 	pg.pPr().BuAutoNum = &drawingml.BuAutoNum{Type: string(scheme)}
+	return pg
+}
+
+// NumberedBulletFrom is NumberedBullet with an explicit starting number
+// (a:buAutoNum's startAt) — for a list that continues from a previous one
+// (e.g. a second column resuming at 4). startAt must be in
+// ST_TextAutonumberStartAt's 1-32767 range; an out-of-range value is
+// recorded as an error on the presentation (returned by Save) and leaves the
+// paragraph's bullet unset. startAt of 1 is the scheme's own default, so it
+// behaves identically to NumberedBullet.
+func (pg *Paragraph) NumberedBulletFrom(scheme NumberingScheme, startAt int) *Paragraph {
+	if startAt < 1 || startAt > 32767 {
+		pg.pres.addErr(errors.InvalidArgument("NumberedBulletFrom", "startAt", startAt, "must be between 1 and 32767 (ST_TextAutonumberStartAt)"))
+		return pg
+	}
+	pg.clearBullet()
+	pg.pPr().BuAutoNum = &drawingml.BuAutoNum{Type: string(scheme), StartAt: startAt}
 	return pg
 }
 

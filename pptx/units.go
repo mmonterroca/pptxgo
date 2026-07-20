@@ -151,9 +151,21 @@ const (
 // along the gradient's axis. Pos is a percentage from 0 (the gradient's
 // start) to 100 (its end) — supply stops in ascending Pos order for a
 // well-formed gradient; nothing enforces that order itself.
+//
+// The stop's color is either an explicit RGB value (Color) or a theme color
+// slot (Scheme). When Scheme is non-empty it takes precedence and the
+// gradient stop follows the active theme (so a themed gradient recolors with
+// WithTheme, just like FillScheme); leave Scheme empty ("") to use Color.
+//
+// Construct a GradientStop with keyed fields (e.g.
+// GradientStop{Color: RGB(...), Pos: 0} or GradientStop{Scheme: SchemeAccent1,
+// Pos: 0}), the form every call site here uses and that Go's vet composite
+// check expects — Scheme was added as a trailing optional field, so keyed
+// literals are unaffected.
 type GradientStop struct {
-	Color drawingml.Color
-	Pos   float64
+	Color  drawingml.Color
+	Pos    float64
+	Scheme SchemeColor
 }
 
 // DashStyle names a preset line-dash pattern (a:prstDash's val attribute,

@@ -84,9 +84,10 @@ type Option func(*presentationConfig)
 type presentationConfig struct {
 	slideWidthEMU  int
 	slideHeightEMU int
-	slideSizeType  string // ST_SlideSizeType, e.g. "screen16x9"; "" when the size doesn't match a named preset
-	theme          *Theme // nil applies DefaultTheme; see WithTheme
-	err            error  // an Option's validation error, applied to the *Presentation once New has one to record it on
+	slideSizeType  string   // ST_SlideSizeType, e.g. "screen16x9"; "" when the size doesn't match a named preset
+	theme          *Theme   // nil applies DefaultTheme; see WithTheme
+	metadata       Metadata // document properties (docProps); see WithMetadata and friends
+	err            error    // an Option's validation error, applied to the *Presentation once New has one to record it on
 }
 
 // ST_SlideSizeCoordinate's inclusive range, in EMUs (1in to 56in) — the
@@ -140,6 +141,45 @@ func WithTheme(t Theme) Option {
 		theme := t
 		c.theme = &theme
 	}
+}
+
+// WithMetadata sets the presentation's document properties (docProps/core.xml
+// and docProps/app.xml) all at once. The single-field options below
+// (WithTitle, WithAuthor, ...) set individual members and compose with this
+// in call order.
+func WithMetadata(m Metadata) Option {
+	return func(c *presentationConfig) { c.metadata = m }
+}
+
+// WithTitle sets the document title (dc:title).
+func WithTitle(title string) Option {
+	return func(c *presentationConfig) { c.metadata.Title = title }
+}
+
+// WithAuthor sets the document author (dc:creator). Unless WithMetadata also
+// sets LastModifiedBy, the author is used as the last-modified-by too.
+func WithAuthor(author string) Option {
+	return func(c *presentationConfig) { c.metadata.Creator = author }
+}
+
+// WithSubject sets the document subject (dc:subject).
+func WithSubject(subject string) Option {
+	return func(c *presentationConfig) { c.metadata.Subject = subject }
+}
+
+// WithKeywords sets the document keywords (cp:keywords).
+func WithKeywords(keywords string) Option {
+	return func(c *presentationConfig) { c.metadata.Keywords = keywords }
+}
+
+// WithDescription sets the document description/comments (dc:description).
+func WithDescription(description string) Option {
+	return func(c *presentationConfig) { c.metadata.Description = description }
+}
+
+// WithCompany sets the company (docProps/app.xml Company).
+func WithCompany(company string) Option {
+	return func(c *presentationConfig) { c.metadata.Company = company }
 }
 
 // New builds a presentation with its theme, slide master, and slide layout
@@ -233,8 +273,8 @@ func New(opts ...Option) *Presentation {
 	}
 	pkg.AddPart(PathPresentation, ContentTypePresentation, pres)
 
-	pkg.AddPart(PathCoreProps, opc.ContentTypeCoreProperties, NewCoreProperties("", ""))
-	pkg.AddPart(PathAppProps, opc.ContentTypeExtendedProperties, NewAppProperties())
+	pkg.AddPart(PathCoreProps, opc.ContentTypeCoreProperties, newCoreProperties(cfg.metadata))
+	pkg.AddPart(PathAppProps, opc.ContentTypeExtendedProperties, newAppProperties(cfg.metadata))
 
 	rootRels := pkg.Relationships("")
 	if _, err := rootRels.Add(RelTypeOfficeDocument, PathPresentation, "Internal"); err != nil {
