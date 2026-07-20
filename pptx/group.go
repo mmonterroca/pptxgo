@@ -35,11 +35,14 @@ import (
 // to SpTree (nvGrpSpPr + grpSpPr + an ordered Content) but its own type,
 // not a reuse of SpTree — SpTree's own fixed "p:spTree" XMLName can't be
 // renamed to "p:grpSp" via a field tag (the same conflict this package's
-// other new-type-per-tag types already document). Content holds nested
-// shapes/pictures/tables/groups/connectors in an order-preserving `[]any`,
-// the same pattern SpTree.Content uses — CT_GroupShape's own EG_ShapeElements
-// group allows any of those interleaved in any order, and there is no
-// custom MarshalXML to reorder them.
+// other new-type-per-tag types already document). Content is an
+// order-preserving `[]any`, the same pattern SpTree.Content uses:
+// CT_GroupShape's own EG_ShapeElements group structurally allows shapes,
+// pictures, tables, nested groups, and connectors interleaved in any order,
+// and there is no custom MarshalXML to reorder them. The Group handle
+// currently only routes AddShape/AddTextBox (p:sp) into it; nesting a
+// picture, table, or sub-group is a possible follow-up (each needs its own
+// real-PowerPoint check that the element actually moves with the group).
 type GroupShape struct {
 	XMLName   xml.Name   `xml:"p:grpSp"`
 	NvGrpSpPr *NvGrpSpPr `xml:"p:nvGrpSpPr"`

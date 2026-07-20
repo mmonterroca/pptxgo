@@ -149,16 +149,29 @@ func (cr *ConnectorRef) ArrowEnd(t ArrowheadType) *ConnectorRef {
 // default when ct is unset would be the zero value "", which is not a
 // valid ST_ShapeType name, so callers must pass one explicitly).
 //
-// The emitted a:xfrm is a bounding box spanning both shapes' own current
-// positions (from their spPr.Xfrm — a shape added inside a Group, or a
-// placeholder with no a:xfrm of its own, has none, and Connect records an
-// error on the presentation in that case, leaving the connector unset).
-// PowerPoint recomputes the connector's actual visual routing from the
-// binding once opened; this box only needs to be non-degenerate, not an
-// exact fit.
+// The emitted a:xfrm spans the two connection POINTS the connector binds
+// (not a bounding box of the two shapes' full rectangles — see connectorXfrm
+// for why that distinction is load-bearing), computed from each endpoint's
+// own spPr.Xfrm. A placeholder has no a:xfrm of its own (it inherits
+// geometry from the layout — see AddPlaceholder), so Connect records an error
+// on the presentation and leaves the connector unset when either endpoint is
+// one; a shape added inside a Group is NOT such a case (Group.AddShape gives
+// it a slide-absolute a:xfrm, so group members are connectable — the demo
+// binds across a group boundary). PowerPoint recomputes the connector's
+// actual visual routing from the binding once opened; the a:xfrm only needs
+// to be non-degenerate, not an exact fit.
 //
-// An unrecognized fromSite/toSite or ct is recorded as an error on the
-// presentation (returned by Save) and leaves the connector unset.
+// Both endpoints must be drawn with a preset in connSiteGeom (rect,
+// roundRect, ellipse) — the geometries whose connection-site indices are
+// verified (see ConnSite). An endpoint with any other preset, an
+// unrecognized fromSite/toSite, or an invalid ct is recorded as an error on
+// the presentation (returned by Save) and leaves the connector unset.
+//
+// siteXY reads each endpoint's un-rotated cardinal point, so a connector to a
+// shape that has been rotated (ShapeRef.Rotation) or flipped (FlipH/FlipV)
+// may render slightly detached on first paint; because the stCxn/endCxn
+// binding is still correct, PowerPoint re-routes it to the shape the moment
+// that shape is nudged. Rotation-aware endpoints are a possible follow-up.
 func (s *Slide) Connect(from *ShapeRef, fromSite ConnSite, to *ShapeRef, toSite ConnSite, ct ConnectorType) *ConnectorRef {
 	fromIdx, ok := connSiteIdx[fromSite]
 	if !ok {
@@ -176,7 +189,12 @@ func (s *Slide) Connect(from *ShapeRef, fromSite ConnSite, to *ShapeRef, toSite 
 	}
 	if from.spPr.Xfrm == nil || to.spPr.Xfrm == nil {
 		s.pres.addErr(errors.InvalidArgument("Connect", "from/to", "no xfrm",
-			"both shapes need their own a:xfrm to connect (a placeholder or a group member with inherited/relative geometry has none)"))
+			"both shapes need their own a:xfrm to connect (a placeholder inherits geometry from the layout and has none — see AddPlaceholder)"))
+		return &ConnectorRef{pres: s.pres, spPr: &SpPr{}}
+	}
+	if !connSiteBindable(from) || !connSiteBindable(to) {
+		s.pres.addErr(errors.InvalidArgument("Connect", "from/to", "unsupported geometry",
+			"both shapes must be drawn with rect, roundRect, or ellipse — the presets whose connection-site indices are verified (see ConnSite)"))
 		return &ConnectorRef{pres: s.pres, spPr: &SpPr{}}
 	}
 
@@ -203,10 +221,24 @@ func (s *Slide) Connect(from *ShapeRef, fromSite ConnSite, to *ShapeRef, toSite 
 	return &ConnectorRef{pres: s.pres, spPr: spPr}
 }
 
+// connSiteBindable reports whether sr's shape is drawn with a preset geometry
+// whose connection-site indices connSiteIdx is verified against (see
+// connSiteGeom). A shape with no preset geometry at all is not bindable.
+func connSiteBindable(sr *ShapeRef) bool {
+	if sr.spPr.PrstGeom == nil {
+		return false
+	}
+	return connSiteGeom[PresetGeometry(sr.spPr.PrstGeom.Prst)]
+}
+
 // siteXY returns the slide-absolute (x, y) of the given connection site on
 // a shape whose own transform is xfrm — the exact point PowerPoint's own
 // "line" connector geometry draws to/from, not merely a point somewhere on
-// the shape. The four cardinal offsets match ConnSite's own doc comment
+// the shape. It reads the site off the un-rotated, un-flipped box (Off/Ext
+// only, ignoring xfrm.Rot/FlipH/FlipV); for a rotated or flipped endpoint the
+// first-paint point is therefore approximate, self-correcting once PowerPoint
+// re-routes from the binding (see Connect's own doc comment). The four
+// cardinal offsets match ConnSite's own doc comment
 // (0=top, 1=left, 2=bottom, 3=right, counter-clockwise from the top),
 // confirmed against python-pptx's own hardcoded connection-point formula
 // (Connector._move_begin_to_cxn/_move_end_to_cxn) and a real render — the

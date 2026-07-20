@@ -297,6 +297,37 @@ func TestConnect_ShapeWithNoXfrmAccumulatesError(t *testing.T) {
 	}
 }
 
+func TestConnect_UnsupportedEndpointGeometryAccumulatesError(t *testing.T) {
+	// A triangle numbers its cxnLst sites differently from rect/roundRect/
+	// ellipse, so binding stCxn/endCxn with connSiteIdx's fixed cardinal
+	// indices would silently point at the wrong site in real PowerPoint.
+	// Connect rejects an endpoint drawn with any preset outside connSiteGeom
+	// rather than emitting that schema-valid-but-mis-routed binding.
+	p := New()
+	s := p.AddSlide()
+	a := s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(1), Inches(1))
+	tri := s.AddShape(ShapeTriangle, Inches(5), Inches(1), Inches(1), Inches(1))
+	s.Connect(a, SiteRight, tri, SiteLeft, ConnStraight)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated unsupported-geometry error")
+	}
+}
+
+func TestConnect_RoundRectAndEllipseEndpointsAreAccepted(t *testing.T) {
+	// The three verified presets (rect covered elsewhere) must NOT trip the
+	// connSiteGeom guard — a roundRect-to-ellipse connection saves cleanly.
+	p := New()
+	s := p.AddSlide()
+	a := s.AddShape(ShapeRoundRect, Inches(1), Inches(1), Inches(1), Inches(1))
+	b := s.AddShape(ShapeEllipse, Inches(5), Inches(1), Inches(1), Inches(1))
+	s.Connect(a, SiteRight, b, SiteLeft, ConnStraight)
+
+	if err := p.Save(&bytes.Buffer{}); err != nil {
+		t.Fatalf("expected roundRect/ellipse endpoints to be accepted, got %v", err)
+	}
+}
+
 func TestConnectorRef_ReusesShapeRefLineStylingMethods(t *testing.T) {
 	p := New()
 	s := p.AddSlide()

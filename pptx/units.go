@@ -348,15 +348,16 @@ const (
 )
 
 // ConnSite names a connection site on a shape's own geometry, for use with
-// Slide.Connect. Built-in autoshapes (rect, roundRect, ellipse, and the
-// other common diagram shapes) number their four cardinal connection sites
-// 0 (top), 1 (left), 2 (bottom), 3 (right), counter-clockwise from the top —
-// see drawingml.StCxn's own doc comment for how this was confirmed against
-// a real render rather than assumed from the schema.
+// Slide.Connect. rect, roundRect, and ellipse number their four cardinal
+// connection sites 0 (top), 1 (left), 2 (bottom), 3 (right),
+// counter-clockwise from the top — see drawingml.StCxn's own doc comment for
+// how this was confirmed against a real render rather than assumed from the
+// schema. Other presets number (and count) their sites differently in each
+// shape's own cxnLst, so Slide.Connect only accepts endpoints drawn from
+// connSiteGeom (the three verified above); see its doc comment.
 type ConnSite string
 
-// The four cardinal connection sites shared by rect/roundRect/ellipse and
-// most other built-in autoshapes.
+// The four cardinal connection sites shared by rect, roundRect, and ellipse.
 const (
 	SiteTop    ConnSite = "top"
 	SiteLeft   ConnSite = "left"
@@ -369,4 +370,17 @@ const (
 // comment).
 var connSiteIdx = map[ConnSite]uint32{
 	SiteTop: 0, SiteLeft: 1, SiteBottom: 2, SiteRight: 3,
+}
+
+// connSiteGeom is the set of preset geometries whose cxnLst is known (verified
+// against a real render, see ConnSite) to number its four cardinal connection
+// sites the way connSiteIdx assumes. Slide.Connect rejects an endpoint drawn
+// with any other preset rather than binding stCxn/endCxn to an index that
+// means a different (or nonexistent) site on that shape — a schema-valid file
+// PowerPoint would still route wrongly. Widen this set only after verifying a
+// new preset's own indices the same way.
+var connSiteGeom = map[PresetGeometry]bool{
+	ShapeRect:      true,
+	ShapeRoundRect: true,
+	ShapeEllipse:   true,
 }
