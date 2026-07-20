@@ -114,6 +114,33 @@ func TestTc_UnmergedCellOmitsSpanAndMergeAttrs(t *testing.T) {
 	}
 }
 
+func TestTcPr_BorderSidesPrecedeFillGroup(t *testing.T) {
+	// TcBorderLn (not Ln) is deliberately used here — see its own doc
+	// comment for why Ln's fixed "a:ln" XMLName can't fill this role.
+	tcPr := &TcPr{
+		Anchor:    "ctr",
+		LnT:       &TcBorderLn{W: 12700, SolidFill: NewSolidFillRGB(Color{R: 0x1F, G: 0x49, B: 0x7D})},
+		LnBlToTr:  &TcBorderLn{W: 6350},
+		SolidFill: NewSolidFillRGB(Color{R: 0xFF}),
+	}
+	got := marshal(t, tcPr)
+
+	if !strings.Contains(got, `<a:lnT w="12700">`) {
+		t.Errorf("expected a:lnT, got %s", got)
+	}
+	if !strings.Contains(got, `<a:lnBlToTr w="6350">`) {
+		t.Errorf("expected a:lnBlToTr, got %s", got)
+	}
+	lnTIdx := strings.Index(got, "<a:lnT ")
+	lnBlToTrIdx := strings.Index(got, "<a:lnBlToTr")
+	// The cell's own fill (not lnT's border color) is the last solidFill,
+	// identifiable by its distinct FF0000 value.
+	fillIdx := strings.Index(got, `<a:srgbClr val="FF0000">`)
+	if lnTIdx == -1 || lnBlToTrIdx == -1 || fillIdx == -1 || !(lnTIdx < lnBlToTrIdx && lnBlToTrIdx < fillIdx) {
+		t.Errorf("expected lnT < lnBlToTr < solidFill (CT_TableCellProperties sequence), got %s", got)
+	}
+}
+
 func TestTc_HMergeVMergeMarshalAsOneZeroNotTrueFalse(t *testing.T) {
 	// Real PowerPoint output (and pptx.Table.MergeCells) always writes
 	// hMerge="1"/vMerge="1", never Go's default bool "true"/"false" — both

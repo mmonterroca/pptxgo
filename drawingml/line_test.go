@@ -63,3 +63,60 @@ func TestLn_PrstDashMarshalsAfterSolidFill(t *testing.T) {
 		t.Errorf("expected a:solidFill before a:prstDash (CT_LineProperties sequence), got %s", got)
 	}
 }
+
+func TestLn_CapIsAttrAlongsideW(t *testing.T) {
+	ln := &Ln{W: 12700, Cap: "rnd"}
+	got := marshal(t, ln)
+
+	if !strings.Contains(got, `<a:ln w="12700" cap="rnd">`) {
+		t.Errorf("expected cap attr alongside w, got %s", got)
+	}
+}
+
+func TestLn_JoinChoiceMiterCarriesLim(t *testing.T) {
+	ln := &Ln{W: 12700, Miter: &LnMiter{Lim: 800000}}
+	got := marshal(t, ln)
+
+	if !strings.Contains(got, `<a:miter lim="800000">`) {
+		t.Errorf("expected a:miter with lim attr, got %s", got)
+	}
+	if strings.Contains(got, "a:round") || strings.Contains(got, "a:bevel") {
+		t.Errorf("expected only miter, no round/bevel, got %s", got)
+	}
+}
+
+func TestLn_RoundAndBevelAreEmptyElements(t *testing.T) {
+	round := marshal(t, &Ln{W: 1, Round: &LnRound{}})
+	if !strings.Contains(round, "<a:round></a:round>") {
+		t.Errorf("expected empty a:round element, got %s", round)
+	}
+
+	bevel := marshal(t, &Ln{W: 1, Bevel: &LnBevel{}})
+	if !strings.Contains(bevel, "<a:bevel></a:bevel>") {
+		t.Errorf("expected empty a:bevel element, got %s", bevel)
+	}
+}
+
+func TestLn_HeadEndAndTailEndMarshalUnderDistinctTags(t *testing.T) {
+	// LineEnd deliberately has no XMLName of its own (see its doc comment) —
+	// this is the regression test for that: the SAME struct type must
+	// marshal as a:headEnd or a:tailEnd purely from the field's own tag.
+	ln := &Ln{
+		W:       12700,
+		HeadEnd: &LineEnd{Type: "triangle", W: "med", Len: "med"},
+		TailEnd: &LineEnd{Type: "arrow", W: "lg", Len: "lg"},
+	}
+	got := marshal(t, ln)
+
+	if !strings.Contains(got, `<a:headEnd type="triangle" w="med" len="med">`) {
+		t.Errorf("expected a:headEnd with triangle type, got %s", got)
+	}
+	if !strings.Contains(got, `<a:tailEnd type="arrow" w="lg" len="lg">`) {
+		t.Errorf("expected a:tailEnd with arrow type, got %s", got)
+	}
+	headIdx := strings.Index(got, "<a:headEnd")
+	tailIdx := strings.Index(got, "<a:tailEnd")
+	if headIdx == -1 || tailIdx == -1 || headIdx > tailIdx {
+		t.Errorf("expected a:headEnd before a:tailEnd (CT_LineProperties sequence), got %s", got)
+	}
+}

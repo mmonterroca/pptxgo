@@ -99,14 +99,40 @@ type Tc struct {
 }
 
 // TcPr is a:tcPr (CT_TableCellProperties): a table cell's own visual
-// properties. Only the vertical text anchor and cell fill are modeled here
-// (cell margins, per-side borders, and the other CT_TableCellProperties
-// members are left for a later phase). Field/attribute order mirrors the
-// schema: the anchor attribute, then the fill child (a:solidFill or
-// a:noFill, the mutually-exclusive fill group).
+// properties. The vertical text anchor, per-side borders, and cell fill are
+// modeled here (cell margins and the other CT_TableCellProperties members
+// are left for a later phase). Field/attribute order mirrors the schema:
+// the anchor attribute, then the six per-side line children (TcBorderLn —
+// not Ln; see its own doc comment for why), then the fill child
+// (a:solidFill or a:noFill, the mutually-exclusive fill group) — the line
+// children precede the fill group in CT_TableCellProperties' own sequence.
 type TcPr struct {
-	XMLName   xml.Name   `xml:"a:tcPr"`
-	Anchor    string     `xml:"anchor,attr,omitempty"` // ST_TextAnchoringType: t/ctr/b
+	XMLName   xml.Name    `xml:"a:tcPr"`
+	Anchor    string      `xml:"anchor,attr,omitempty"` // ST_TextAnchoringType: t/ctr/b
+	LnL       *TcBorderLn `xml:"a:lnL,omitempty"`
+	LnR       *TcBorderLn `xml:"a:lnR,omitempty"`
+	LnT       *TcBorderLn `xml:"a:lnT,omitempty"`
+	LnB       *TcBorderLn `xml:"a:lnB,omitempty"`
+	LnTlToBr  *TcBorderLn `xml:"a:lnTlToBr,omitempty"`
+	LnBlToTr  *TcBorderLn `xml:"a:lnBlToTr,omitempty"`
+	SolidFill *SolidFill  `xml:"a:solidFill,omitempty"`
+	NoFill    *NoFill     `xml:"a:noFill,omitempty"`
+}
+
+// TcBorderLn mirrors a:ln's width/fill/dash content model (see Ln) but,
+// unlike Ln, has no XMLName of its own. a:tcPr's six border-side children
+// (lnL/lnR/lnT/lnB/lnTlToBr/lnBlToTr) all share this exact shape under six
+// different element names, and Ln's own fixed "a:ln" XMLName would conflict
+// with any field tag that tried to rename it to, say, "a:lnL" — the same
+// conflict GraphicFrameXfrm's own doc comment records for a:xfrm, except
+// there the fix was a second type with a different FIXED name; here it's
+// six different names on the same field kind, so instead this type has no
+// XMLName at all, letting the containing field's own tag control the wire
+// name, the same technique LineEnd uses for a:headEnd/a:tailEnd. Cap, join,
+// and arrowheads (only meaningful on a shape's own visible outline, not an
+// internal table gridline) are deliberately not modeled here.
+type TcBorderLn struct {
+	W         int        `xml:"w,attr,omitempty"` // EMUs
 	SolidFill *SolidFill `xml:"a:solidFill,omitempty"`
-	NoFill    *NoFill    `xml:"a:noFill,omitempty"`
+	PrstDash  *PrstDash  `xml:"a:prstDash,omitempty"`
 }

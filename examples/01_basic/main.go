@@ -101,25 +101,45 @@ func main() {
 
 	// Gradient stops referenced by theme slot (not hardcoded RGB), so this
 	// badge recolors along with the rest of the deck when the theme changes.
+	// Shade/Tint on the stops themselves darken/lighten each end of the
+	// blend without hardcoding a second literal color.
 	trending := s.AddShape(pptx.ShapeRoundRect, pptx.Inches(11.5), pptx.Inches(1), pptx.Inches(1.6), pptx.Inches(0.6)).
 		Adjust("adj", 30000).
 		GradientFill(45,
-			pptx.GradientStop{Scheme: pptx.SchemeAccent2, Pos: 0},
-			pptx.GradientStop{Scheme: pptx.SchemeAccent4, Pos: 100})
+			pptx.GradientStop{Scheme: pptx.SchemeAccent2, Pos: 0, Shade: 20},
+			pptx.GradientStop{Scheme: pptx.SchemeAccent4, Pos: 100, Tint: 30}).
+		Glow(pptx.RGB(0xED, 0x7D, 0x31), 4)
 	trending.AddParagraph().
 		Text("Trending Up").Bold().FontSize(14).Font("Calibri").Color(pptx.RGB(0xFF, 0xFF, 0xFF)).
 		Alignment(pptx.AlignCenter)
 
+	// LineCap/LineJoin round the rectangle's own corners and line ends;
+	// Shadow adds Office's own default drop-shadow preset behind it.
 	tb := s.AddTextBox(pptx.Inches(1), pptx.Inches(1), pptx.Inches(8), pptx.Inches(2)).
 		Fill(pptx.RGB(0xE7, 0xE6, 0xE6)).
-		Border(pptx.RGB(0x1F, 0x49, 0x7D), 1.5)
+		Border(pptx.RGB(0x1F, 0x49, 0x7D), 1.5).
+		LineCap(pptx.LineCapRound).
+		LineJoin(pptx.LineJoinRound).
+		Shadow(pptx.RGB(0x1F, 0x49, 0x7D), 40)
 	tb.AddParagraph().
 		Text("Quarterly Results").Bold().FontSize(32).Font("Calibri").Color(pptx.RGB(0x1F, 0x49, 0x7D)).
 		Alignment(pptx.AlignCenter)
 
+	// A thin vertical divider between the left-hand content and the table,
+	// modeled as an open "line" preset (not a p:cxnSp connector — those are
+	// out of scope) so ArrowEnd/LineCap have visible effect: a closed
+	// autoshape's outline has no defined start/end for an arrowhead to sit on.
+	s.AddShape(pptx.ShapeLine, pptx.Inches(5.7), pptx.Inches(1), pptx.Emu(1), pptx.Inches(5.9)).
+		Border(pptx.RGB(0x44, 0x54, 0x6A), 1.5).
+		LineCap(pptx.LineCapRound).
+		ArrowEnd(pptx.ArrowheadTriangle)
+
 	logo := logoPNG()
+	// SoftEdges fades the image's own edges to transparent — shown WITHOUT a
+	// Border here, since a hard outline would just redraw a crisp edge over
+	// the fade and mask the effect.
 	s.AddImageFromBytes(logo, pptx.Inches(1), pptx.Inches(3.5)).
-		Border(pptx.RGB(0x44, 0x54, 0x6A), 1.0)
+		SoftEdges(8)
 	// Same bytes as above, placed again elsewhere: pptx.Presentation dedups
 	// identical media content, so this embeds only one ppt/media/ part.
 	s.AddImageFromBytesWithSize(logo, pptx.Inches(11.6), pptx.Inches(6.9), pptx.Inches(0.5), pptx.Inches(0.31))
@@ -129,7 +149,8 @@ func main() {
 		Border(pptx.RGB(0x44, 0x54, 0x6A), 1.0).
 		BorderDash(pptx.DashDash).
 		Rotation(15).
-		FlipH()
+		FlipH().
+		Reflection(35)
 	shape.AddParagraph().
 		Text("On Track").Bold().FontSize(18).Font("Calibri").Color(pptx.RGB(0xFF, 0xFF, 0xFF)).
 		Alignment(pptx.AlignCenter)
@@ -159,7 +180,9 @@ func main() {
 		cell := tbl.Cell(0, c)
 		// Branded header row: theme-slot cell fill + light text + centered
 		// vertically, all via TableCell's TcPr — the fills follow WithTheme.
-		cell.FillScheme(pptx.SchemeAccent1).Anchor(pptx.AnchorMiddle)
+		// BorderScheme underlines the row with a themed per-side border.
+		cell.FillScheme(pptx.SchemeAccent1).Anchor(pptx.AnchorMiddle).
+			BorderScheme(pptx.SideBottom, pptx.SchemeDark2, 1.0)
 		cell.Text(h).Bold().ColorScheme(pptx.SchemeLight1)
 	}
 	rows := [][]string{
@@ -175,8 +198,8 @@ func main() {
 	// pptx.Table.MergeCells (gridSpan/hMerge on the surviving cells, no
 	// <a:tc> ever deleted).
 	tbl.MergeCells(3, 0, 3, 1)
-	tbl.Cell(3, 0).Text("Total").Bold()
-	tbl.Cell(3, 2).Text("+11%").Bold()
+	tbl.Cell(3, 0).Border(pptx.SideTop, pptx.RGB(0x1F, 0x49, 0x7D), 1.5).Text("Total").Bold()
+	tbl.Cell(3, 2).Border(pptx.SideTop, pptx.RGB(0x1F, 0x49, 0x7D), 1.5).Text("+11%").Bold()
 
 	// Speaker notes for this slide — shown in PowerPoint's notes pane and on
 	// the printed notes page. The first Notes call lazily creates the deck's

@@ -212,3 +212,370 @@ func TestTableCell_NoFillEmitsNoFillInsideTcPr(t *testing.T) {
 		t.Errorf("expected NoFill to clear the earlier Fill on the cell, got %s", slide)
 	}
 }
+
+// --- table cell per-side borders --------------------------------------------
+
+func TestTableCell_BorderEmitsNamedSideWithinTcPr(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(1, 1, Inches(1), Inches(1), Inches(2), Inches(1))
+	tbl.Cell(0, 0).Border(SideTop, RGB(0x1F, 0x49, 0x7D), 1.5)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:lnT w="19050">`) {
+		t.Errorf("expected a:lnT with width, got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:srgbClr val="1F497D">`) {
+		t.Errorf("expected the border's color, got %s", slide)
+	}
+	for _, unwanted := range []string{"a:lnL", "a:lnR", "a:lnB", "a:lnTlToBr", "a:lnBlToTr"} {
+		if strings.Contains(slide, unwanted) {
+			t.Errorf("expected only the requested side, got %s", slide)
+		}
+	}
+}
+
+func TestTableCell_BorderSchemeEmitsSchemeClr(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(1, 1, Inches(1), Inches(1), Inches(2), Inches(1))
+	tbl.Cell(0, 0).BorderScheme(SideDiagonalDown, SchemeAccent1, 1.0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:lnTlToBr w="12700">`) {
+		t.Errorf("expected a:lnTlToBr with width, got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:schemeClr val="accent1">`) {
+		t.Errorf("expected the border's schemeClr, got %s", slide)
+	}
+}
+
+func TestTableCell_BorderMultipleSidesCoexist(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(1, 1, Inches(1), Inches(1), Inches(2), Inches(1))
+	tbl.Cell(0, 0).
+		Border(SideTop, RGB(0, 0, 0), 1.0).
+		Border(SideBottom, RGB(0xFF, 0, 0), 1.0)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, "<a:lnT ") || !strings.Contains(slide, "<a:lnB ") {
+		t.Errorf("expected both a:lnT and a:lnB present, got %s", slide)
+	}
+}
+
+func TestTableCell_BorderInvalidSideAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(1, 1, Inches(1), Inches(1), Inches(2), Inches(1))
+	tbl.Cell(0, 0).Border(TableCellSide("bogus"), RGB(0, 0, 0), 1.0)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated invalid-side error")
+	}
+}
+
+func TestTableCell_BorderOutOfRangeWidthAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	tbl := s.AddTable(1, 1, Inches(1), Inches(1), Inches(2), Inches(1))
+	tbl.Cell(0, 0).Border(SideTop, RGB(0, 0, 0), -1)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated border-width error")
+	}
+}
+
+// --- gradient stop tint/shade ------------------------------------------------
+
+func TestGradientFill_StopTintShadeEmitTintShadeElements(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		GradientFill(90,
+			GradientStop{Scheme: SchemeAccent2, Pos: 0, Shade: 20},
+			GradientStop{Scheme: SchemeAccent4, Pos: 100, Tint: 30})
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:schemeClr val="accent2">`) || !strings.Contains(slide, `<a:shade val="20000">`) {
+		t.Errorf("expected first stop's schemeClr and shade, got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:schemeClr val="accent4">`) || !strings.Contains(slide, `<a:tint val="30000">`) {
+		t.Errorf("expected second stop's schemeClr and tint, got %s", slide)
+	}
+}
+
+func TestGradientFill_StopTintShadeOutOfRangeAccumulatesError(t *testing.T) {
+	for _, bad := range []GradientStop{
+		{Color: RGB(0, 0, 0), Pos: 0, Tint: 101},
+		{Color: RGB(0, 0, 0), Pos: 0, Shade: -1},
+	} {
+		p := New()
+		s := p.AddSlide()
+		s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+			GradientFill(0, bad, GradientStop{Color: RGB(0xFF, 0xFF, 0xFF), Pos: 100})
+		if err := p.Save(&bytes.Buffer{}); err == nil {
+			t.Errorf("expected Save to error for out-of-range stop %+v", bad)
+		}
+	}
+}
+
+func TestGradientFill_StopWithBothTintAndShadeAccumulatesError(t *testing.T) {
+	// Regression: Tint and Shade together lighten-then-darken to a muddied
+	// color; the documented "at most one" contract must be enforced, not
+	// silently emitted as both a:tint and a:shade.
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		GradientFill(0,
+			GradientStop{Scheme: SchemeAccent2, Pos: 0, Tint: 30, Shade: 20},
+			GradientStop{Color: RGB(0xFF, 0xFF, 0xFF), Pos: 100})
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated both-Tint-and-Shade error")
+	}
+}
+
+// --- line cap / join / arrowheads --------------------------------------------
+
+func TestLineCap_SetsAttrAfterBorder(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		Border(RGB(0, 0, 0), 2).
+		LineCap(LineCapRound)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `cap="rnd"`) {
+		t.Errorf("expected cap=\"rnd\", got %s", slide)
+	}
+}
+
+func TestLineCap_BeforeBorderAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).LineCap(LineCapRound)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated no-outline error")
+	}
+}
+
+func TestLineJoin_MiterUsesOfficeDefaultLimit(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		Border(RGB(0, 0, 0), 2).
+		LineJoin(LineJoinMiter)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:miter lim="800000">`) {
+		t.Errorf("expected a:miter lim=\"800000\", got %s", slide)
+	}
+}
+
+func TestLineJoin_SwitchingStylesClearsThePrevious(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		Border(RGB(0, 0, 0), 2).
+		LineJoin(LineJoinMiter).
+		LineJoin(LineJoinRound)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if strings.Contains(slide, "a:miter") {
+		t.Errorf("expected the second LineJoin to clear the first, got %s", slide)
+	}
+	if !strings.Contains(slide, "<a:round></a:round>") {
+		t.Errorf("expected a:round present, got %s", slide)
+	}
+}
+
+func TestArrowStartEnd_EmitDistinctHeadAndTailEndTypes(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeLine, Inches(1), Inches(1), Emu(1), Inches(2)).
+		Border(RGB(0, 0, 0), 1.5).
+		ArrowStart(ArrowheadOval).
+		ArrowEnd(ArrowheadTriangle)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:headEnd type="oval" w="med" len="med">`) {
+		t.Errorf("expected headEnd type=oval, got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:tailEnd type="triangle" w="med" len="med">`) {
+		t.Errorf("expected tailEnd type=triangle, got %s", slide)
+	}
+}
+
+func TestArrowEnd_BeforeBorderAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeLine, Inches(1), Inches(1), Emu(1), Inches(2)).ArrowEnd(ArrowheadTriangle)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated no-outline error")
+	}
+}
+
+func TestArrowEnd_InvalidTypeAccumulatesError(t *testing.T) {
+	// Regression: an unrecognized ST_LineEndType must be rejected (like
+	// LineCap's own enum check), not written straight into a schema-invalid
+	// a:tailEnd/@type.
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeLine, Inches(1), Inches(1), Emu(1), Inches(2)).
+		Border(RGB(0, 0, 0), 1).
+		ArrowEnd(ArrowheadType("arrowhead"))
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated invalid-arrowhead-type error")
+	}
+}
+
+func TestLineJoin_InvalidStylePreservesPriorJoin(t *testing.T) {
+	// Regression: an invalid style must not wipe a previously-set join —
+	// LineJoin validates before clearing, matching LineCap. The accumulated
+	// error gates Save, so the surviving join is asserted on the in-memory
+	// struct directly rather than through the emitted XML.
+	p := New()
+	s := p.AddSlide()
+	sh := s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		Border(RGB(0, 0, 0), 2).
+		LineJoin(LineJoinRound).
+		LineJoin(LineJoinStyle("bad"))
+
+	if sh.spPr.Ln.Round == nil {
+		t.Error("expected the prior round join to survive an invalid LineJoin call")
+	}
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Error("expected the invalid LineJoin to still record an error on Save")
+	}
+}
+
+// --- shape effects (shadow / glow / reflection / soft edges) ----------------
+
+func TestShadow_EmitsOuterShdwWithAlphaColor(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		Shadow(RGB(0, 0, 0), 60)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `rotWithShape="0"`) {
+		t.Errorf("expected rotWithShape=\"0\" (Office's own preset), got %s", slide)
+	}
+	if !strings.Contains(slide, `<a:srgbClr val="000000">`) || !strings.Contains(slide, `<a:alpha val="60000">`) {
+		t.Errorf("expected shadow color with alpha, got %s", slide)
+	}
+}
+
+func TestShadow_OutOfRangeAlphaAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).Shadow(RGB(0, 0, 0), 101)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated out-of-range alpha error")
+	}
+}
+
+func TestGlow_EmitsRadiusInEMUs(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).
+		Glow(RGB(0xED, 0x7D, 0x31), 5)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:glow rad="63500">`) {
+		t.Errorf("expected glow rad=\"63500\" (5pt in EMUs), got %s", slide)
+	}
+}
+
+func TestReflection_EmitsStartOpacity(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).Reflection(50)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `stA="50000"`) {
+		t.Errorf("expected stA=\"50000\", got %s", slide)
+	}
+	if !strings.Contains(slide, `sy="-100000"`) {
+		t.Errorf("expected the mirror-flip sy=\"-100000\" (without it nothing renders), got %s", slide)
+	}
+}
+
+func TestReflection_OutOfRangeAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).Reflection(-1)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated out-of-range error")
+	}
+}
+
+func TestSoftEdges_EmitsRadiusInEMUs(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).SoftEdges(2)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	if !strings.Contains(slide, `<a:softEdge rad="25400">`) {
+		t.Errorf("expected softEdge rad=\"25400\" (2pt in EMUs), got %s", slide)
+	}
+}
+
+func TestSoftEdges_NegativeRadiusAccumulatesError(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddShape(ShapeRect, Inches(1), Inches(1), Inches(2), Inches(2)).SoftEdges(-1)
+
+	if err := p.Save(&bytes.Buffer{}); err == nil {
+		t.Fatal("expected Save to return the accumulated negative-radius error")
+	}
+}
+
+func TestPictureRef_EffectsShareShapeRefHelpers(t *testing.T) {
+	p := New()
+	s := p.AddSlide()
+	s.AddImageFromBytes(pngBytes(t, 40, 40), Inches(1), Inches(1)).
+		Shadow(RGB(0, 0, 0), 50).
+		Glow(RGB(0xFF, 0, 0), 3).
+		Reflection(40).
+		SoftEdges(1)
+
+	files := generateFrom(t, p)
+	slide := string(files["ppt/slides/slide1.xml"])
+
+	for _, want := range []string{"<a:outerShdw", "<a:glow", "<a:reflection", "<a:softEdge"} {
+		if !strings.Contains(slide, want) {
+			t.Errorf("expected %q on the picture, got %s", want, slide)
+		}
+	}
+}
