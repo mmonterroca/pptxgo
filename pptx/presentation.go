@@ -85,6 +85,7 @@ type presentationConfig struct {
 	slideWidthEMU  int
 	slideHeightEMU int
 	slideSizeType  string // ST_SlideSizeType, e.g. "screen16x9"; "" when the size doesn't match a named preset
+	theme          *Theme // nil applies DefaultTheme; see WithTheme
 	err            error  // an Option's validation error, applied to the *Presentation once New has one to record it on
 }
 
@@ -128,6 +129,19 @@ func WithStandard4x3() Option {
 	}
 }
 
+// WithTheme brands the whole deck with t's color scheme and font scheme
+// (ppt/theme/theme1.xml). Because every fill, border, text color, and
+// background can reference a theme slot by name (SchemeColor with FillScheme/
+// BorderScheme/ColorScheme/BackgroundScheme) rather than a hardcoded RGB,
+// one WithTheme recolors all of them at once. Omitting it applies
+// DefaultTheme (Office's palette and typography). See Theme, DefaultTheme.
+func WithTheme(t Theme) Option {
+	return func(c *presentationConfig) {
+		theme := t
+		c.theme = &theme
+	}
+}
+
 // New builds a presentation with its theme, slide master, and slide layout
 // already wired, and no slides. Call AddSlide to add content. With no
 // options, the slide canvas is 16:9 widescreen; pass WithSlideSize or
@@ -144,7 +158,11 @@ func New(opts ...Option) *Presentation {
 
 	pkg := opc.NewPackage()
 
-	pkg.AddRawPart(PathTheme1, opc.ContentTypeTheme, []byte(defaultTheme))
+	theme := DefaultTheme()
+	if cfg.theme != nil {
+		theme = *cfg.theme
+	}
+	pkg.AddRawPart(PathTheme1, opc.ContentTypeTheme, renderThemeXML(theme))
 
 	// Add the master's relationships first and thread the generated rIds
 	// into the XML, rather than restating "rId2" as a literal that silently
