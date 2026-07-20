@@ -67,3 +67,43 @@ func TestGs_SchemeClrVariant(t *testing.T) {
 		t.Errorf("expected scheme-color gradient stop, got %s", got)
 	}
 }
+
+func TestSrgbClr_TintShadeAlphaLumModOff(t *testing.T) {
+	c := &SrgbClr{
+		Val:    "FF0000",
+		Tint:   &Tint{Val: 40000},
+		Shade:  &Shade{Val: 20000},
+		Alpha:  &Alpha{Val: 63000},
+		LumMod: &LumMod{Val: 110000},
+		LumOff: &LumOff{Val: 5000},
+	}
+	got := marshal(t, c)
+
+	for _, want := range []string{
+		`<a:srgbClr val="FF0000">`,
+		`<a:tint val="40000">`,
+		`<a:shade val="20000">`,
+		`<a:alpha val="63000">`,
+		`<a:lumMod val="110000">`,
+		`<a:lumOff val="5000">`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected %q in %s", want, got)
+		}
+	}
+}
+
+func TestSchemeClr_AlphaOnlyOmitsOtherTransforms(t *testing.T) {
+	// The shape a theme's own outerShdw uses (see themeFmtScheme): just alpha.
+	c := &SchemeClr{Val: "accent1", Alpha: &Alpha{Val: 63000}}
+	got := marshal(t, c)
+
+	if !strings.Contains(got, `<a:schemeClr val="accent1"><a:alpha val="63000">`) {
+		t.Errorf("expected schemeClr with only alpha, got %s", got)
+	}
+	for _, unwanted := range []string{"tint", "shade", "lumMod", "lumOff"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("expected no %s element when unset, got %s", unwanted, got)
+		}
+	}
+}

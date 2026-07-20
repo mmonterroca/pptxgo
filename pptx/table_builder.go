@@ -284,3 +284,61 @@ func (c *TableCell) Anchor(a VerticalAnchor) *TableCell {
 	c.tcPr().Anchor = string(a)
 	return c
 }
+
+// Border sets one edge (or diagonal) of the cell's own outline to a solid
+// color at the given width, in points — see ShapeRef.Border for the width's
+// valid range. An out-of-range width is recorded as an error on the
+// presentation (returned by Save) and leaves that side unset.
+func (c *TableCell) Border(side TableCellSide, color drawingml.Color, widthPoints float64) *TableCell {
+	field, ok := c.lnFieldFor(side)
+	if !ok {
+		c.pres.addErr(errors.InvalidArgument("TableCell.Border", "side", side, "not a valid table-cell border side"))
+		return c
+	}
+	w, ok := validatedLineWidthEMU(c.pres, widthPoints)
+	if !ok {
+		return c
+	}
+	*field = &drawingml.TcBorderLn{W: w, SolidFill: drawingml.NewSolidFillRGB(color)}
+	return c
+}
+
+// BorderScheme is Border's theme-color counterpart, referencing a scheme
+// slot (e.g. SchemeAccent1) rather than an explicit RGB value.
+func (c *TableCell) BorderScheme(side TableCellSide, scheme SchemeColor, widthPoints float64) *TableCell {
+	field, ok := c.lnFieldFor(side)
+	if !ok {
+		c.pres.addErr(errors.InvalidArgument("TableCell.BorderScheme", "side", side, "not a valid table-cell border side"))
+		return c
+	}
+	w, ok := validatedLineWidthEMU(c.pres, widthPoints)
+	if !ok {
+		return c
+	}
+	*field = &drawingml.TcBorderLn{W: w, SolidFill: drawingml.NewSolidFillScheme(string(scheme))}
+	return c
+}
+
+// lnFieldFor returns a pointer to the a:tcPr field the given side
+// addresses (allocating the tcPr on first use), so Border/BorderScheme can
+// set it through a single shared assignment. ok is false for an
+// unrecognized side, in which case the returned pointer is nil.
+func (c *TableCell) lnFieldFor(side TableCellSide) (field **drawingml.TcBorderLn, ok bool) {
+	p := c.tcPr()
+	switch side {
+	case SideLeft:
+		return &p.LnL, true
+	case SideRight:
+		return &p.LnR, true
+	case SideTop:
+		return &p.LnT, true
+	case SideBottom:
+		return &p.LnB, true
+	case SideDiagonalDown:
+		return &p.LnTlToBr, true
+	case SideDiagonalUp:
+		return &p.LnBlToTr, true
+	default:
+		return nil, false
+	}
+}

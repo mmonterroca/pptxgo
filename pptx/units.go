@@ -160,15 +160,22 @@ const (
 // gradient stop follows the active theme (so a themed gradient recolors with
 // WithTheme, just like FillScheme); leave Scheme empty ("") to use Color.
 //
+// Tint (0-100) lightens the stop's color toward white; Shade (0-100)
+// darkens it toward black — at most one should be set (both are rarely
+// meaningful together); zero on both means no adjustment, applied whether
+// the stop uses Color or Scheme.
+//
 // Construct a GradientStop with keyed fields (e.g.
 // GradientStop{Color: RGB(...), Pos: 0} or GradientStop{Scheme: SchemeAccent1,
 // Pos: 0}), the form every call site here uses and that Go's vet composite
-// check expects — Scheme was added as a trailing optional field, so keyed
-// literals are unaffected.
+// check expects — Scheme, Tint, and Shade were all added as trailing
+// optional fields, so keyed literals are unaffected.
 type GradientStop struct {
 	Color  drawingml.Color
 	Pos    float64
 	Scheme SchemeColor
+	Tint   float64
+	Shade  float64
 }
 
 // DashStyle names a preset line-dash pattern (a:prstDash's val attribute,
@@ -204,6 +211,65 @@ func IsValidDashStyle(style DashStyle) bool {
 	return validDashStyles[style]
 }
 
+// LineCapStyle names a line's end-cap style (a:ln's cap attribute,
+// ST_LineCap), for use with ShapeRef.LineCap.
+type LineCapStyle string
+
+// The complete ST_LineCap enumeration.
+const (
+	LineCapFlat   LineCapStyle = "flat"
+	LineCapRound  LineCapStyle = "rnd"
+	LineCapSquare LineCapStyle = "sq"
+)
+
+// IsValidLineCapStyle reports whether style is one of ST_LineCap's 3
+// defined values.
+func IsValidLineCapStyle(style LineCapStyle) bool {
+	return style == LineCapFlat || style == LineCapRound || style == LineCapSquare
+}
+
+// LineJoinStyle names a line's corner-join style — how two of its segments
+// meet at a corner — for use with ShapeRef.LineJoin.
+type LineJoinStyle string
+
+// The three EG_LineJoinProperties choices.
+const (
+	LineJoinRound LineJoinStyle = "round"
+	LineJoinBevel LineJoinStyle = "bevel"
+	LineJoinMiter LineJoinStyle = "miter" // Office's own default miter limit, 800%
+)
+
+// ArrowheadType names an arrowhead (or other line-end decoration) for use
+// with ShapeRef.ArrowStart/ArrowEnd (a:headEnd/a:tailEnd's type attribute,
+// ST_LineEndType). Only has visible effect on an open shape's outline (e.g.
+// ShapeLine) — a closed autoshape's path has no defined start/end.
+type ArrowheadType string
+
+// The complete ST_LineEndType enumeration.
+const (
+	ArrowheadNone     ArrowheadType = "none"
+	ArrowheadTriangle ArrowheadType = "triangle"
+	ArrowheadStealth  ArrowheadType = "stealth"
+	ArrowheadDiamond  ArrowheadType = "diamond"
+	ArrowheadOval     ArrowheadType = "oval"
+	ArrowheadArrow    ArrowheadType = "arrow"
+)
+
+// TableCellSide names which edge (or diagonal) of a table cell
+// TableCell.Border/BorderScheme sets an outline on (a:tcPr's six per-side
+// line children).
+type TableCellSide string
+
+// The six CT_TableCellProperties line-child sides.
+const (
+	SideLeft         TableCellSide = "l"
+	SideRight        TableCellSide = "r"
+	SideTop          TableCellSide = "t"
+	SideBottom       TableCellSide = "b"
+	SideDiagonalDown TableCellSide = "tlToBr" // top-left to bottom-right
+	SideDiagonalUp   TableCellSide = "blToTr" // bottom-left to top-right
+)
+
 // PresetGeometry names a preset autoshape outline (a:prstGeom's prst
 // attribute, schema type ST_ShapeType) for use with Slide.AddShape. This is
 // a representative subset of the ~180 shapes ST_ShapeType allows; any other
@@ -212,6 +278,7 @@ type PresetGeometry string
 
 // Common preset geometries.
 const (
+	ShapeLine           PresetGeometry = "line"
 	ShapeRect           PresetGeometry = "rect"
 	ShapeRoundRect      PresetGeometry = "roundRect"
 	ShapeEllipse        PresetGeometry = "ellipse"

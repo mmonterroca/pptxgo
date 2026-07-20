@@ -43,3 +43,51 @@ func (p *PictureRef) Border(c drawingml.Color, widthPoints float64) *PictureRef 
 	p.spPr.Ln = newLn(p.pres, c, widthPoints)
 	return p
 }
+
+// Shadow is ShapeRef.Shadow's counterpart for a placed image.
+func (p *PictureRef) Shadow(c drawingml.Color, alphaPercent float64) *PictureRef {
+	shdw, ok := newOuterShdw(p.pres, c, alphaPercent)
+	if !ok {
+		return p
+	}
+	p.effectLst().OuterShdw = shdw
+	return p
+}
+
+// Glow is ShapeRef.Glow's counterpart for a placed image.
+func (p *PictureRef) Glow(c drawingml.Color, radiusPoints float64) *PictureRef {
+	glow, ok := newGlow(p.pres, c, radiusPoints)
+	if !ok {
+		return p
+	}
+	p.effectLst().Glow = glow
+	return p
+}
+
+// Reflection is ShapeRef.Reflection's counterpart for a placed image.
+func (p *PictureRef) Reflection(startOpacityPercent float64) *PictureRef {
+	refl, ok := newReflection(p.pres, startOpacityPercent)
+	if !ok {
+		return p
+	}
+	p.effectLst().Reflection = refl
+	return p
+}
+
+// SoftEdges is ShapeRef.SoftEdges's counterpart for a placed image.
+func (p *PictureRef) SoftEdges(radiusPoints float64) *PictureRef {
+	rad, ok := newSoftEdgeRad(p.pres, radiusPoints)
+	if !ok {
+		return p
+	}
+	p.effectLst().SoftEdge = &drawingml.SoftEdge{Rad: rad}
+	return p
+}
+
+// effectLst lazily allocates and returns the picture's a:effectLst.
+func (p *PictureRef) effectLst() *drawingml.EffectLst {
+	if p.spPr.EffectLst == nil {
+		p.spPr.EffectLst = &drawingml.EffectLst{}
+	}
+	return p.spPr.EffectLst
+}

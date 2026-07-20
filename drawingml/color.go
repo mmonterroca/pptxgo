@@ -112,17 +112,71 @@ func NewSolidFillScheme(schemeColor string) *SolidFill {
 	return &SolidFill{SchemeClr: &SchemeClr{Val: schemeColor}}
 }
 
-// SrgbClr (a:srgbClr) is an explicit RGB color, as a 6-digit hex string.
+// SrgbClr (a:srgbClr) is an explicit RGB color, as a 6-digit hex string,
+// optionally adjusted by one or more color transforms (Tint/Shade/Alpha/
+// LumMod/LumOff — see their own doc comments). The schema's EG_ColorTransform
+// group is a repeatable *choice* (each transform 0 or more times, in any
+// order), so unlike most sibling elements in this package, field order here
+// is stylistic, not schema-mandated — real Office output (see
+// themeFmtScheme) shows tint before shade before lumMod, which this mirrors.
 type SrgbClr struct {
 	XMLName xml.Name `xml:"a:srgbClr"`
 	Val     string   `xml:"val,attr"`
+	Tint    *Tint    `xml:"a:tint,omitempty"`
+	Shade   *Shade   `xml:"a:shade,omitempty"`
+	Alpha   *Alpha   `xml:"a:alpha,omitempty"`
+	LumMod  *LumMod  `xml:"a:lumMod,omitempty"`
+	LumOff  *LumOff  `xml:"a:lumOff,omitempty"`
 }
 
 // SchemeClr (a:schemeClr) references a color slot from the active theme's
-// color scheme.
+// color scheme, optionally adjusted by the same color transforms SrgbClr
+// carries — see SrgbClr's doc comment for the field-order note.
 type SchemeClr struct {
 	XMLName xml.Name `xml:"a:schemeClr"`
 	Val     string   `xml:"val,attr"`
+	Tint    *Tint    `xml:"a:tint,omitempty"`
+	Shade   *Shade   `xml:"a:shade,omitempty"`
+	Alpha   *Alpha   `xml:"a:alpha,omitempty"`
+	LumMod  *LumMod  `xml:"a:lumMod,omitempty"`
+	LumOff  *LumOff  `xml:"a:lumOff,omitempty"`
+}
+
+// Tint is a:tint (CT_PositiveFixedPercentage): lightens a color toward
+// white by the given percentage, in thousandths of a percent (0-100000).
+type Tint struct {
+	XMLName xml.Name `xml:"a:tint"`
+	Val     int      `xml:"val,attr"`
+}
+
+// Shade is a:shade (CT_PositiveFixedPercentage): darkens a color toward
+// black by the given percentage, in thousandths of a percent (0-100000).
+type Shade struct {
+	XMLName xml.Name `xml:"a:shade"`
+	Val     int      `xml:"val,attr"`
+}
+
+// Alpha is a:alpha (CT_PositiveFixedPercentage): a color's opacity, in
+// thousandths of a percent (0-100000; 100000 is fully opaque).
+type Alpha struct {
+	XMLName xml.Name `xml:"a:alpha"`
+	Val     int      `xml:"val,attr"`
+}
+
+// LumMod is a:lumMod (CT_Percentage): scales a color's luminance by the
+// given percentage, in thousandths of a percent.
+type LumMod struct {
+	XMLName xml.Name `xml:"a:lumMod"`
+	Val     int      `xml:"val,attr"`
+}
+
+// LumOff is a:lumOff (CT_Percentage): shifts a color's luminance by the
+// given percentage, in thousandths of a percent — typically paired with
+// LumMod to compute the tint/shade variants PowerPoint's own theme-color
+// picker offers (e.g. "Accent 1, Lighter 40%").
+type LumOff struct {
+	XMLName xml.Name `xml:"a:lumOff"`
+	Val     int      `xml:"val,attr"`
 }
 
 // SysClr (a:sysClr) is a system color: Val names a system color slot (e.g.

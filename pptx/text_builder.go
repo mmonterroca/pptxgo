@@ -136,6 +136,147 @@ func (sr *ShapeRef) BorderDash(style DashStyle) *ShapeRef {
 	return sr
 }
 
+// LineCap sets the shape's outline end-cap style. Border or BorderScheme
+// must be called first to give the shape an outline to style — the same
+// prior-Border requirement and error contract BorderDash gives. An
+// unrecognized style is likewise recorded as an error and leaves the cap
+// unset.
+func (sr *ShapeRef) LineCap(style LineCapStyle) *ShapeRef {
+	if sr.spPr.Ln == nil {
+		sr.pres.addErr(errors.InvalidArgument("LineCap", "shape", "no outline",
+			"Border or BorderScheme must be called before LineCap"))
+		return sr
+	}
+	if !IsValidLineCapStyle(style) {
+		sr.pres.addErr(errors.InvalidArgument("LineCap", "style", style, "not a valid ST_LineCap value"))
+		return sr
+	}
+	sr.spPr.Ln.Cap = string(style)
+	return sr
+}
+
+// LineJoin sets the shape's outline corner-join style — how two of the
+// outline's segments meet at a corner (visible only on a shape with actual
+// corners, e.g. ShapeRect, not ShapeEllipse). Border or BorderScheme must be
+// called first — see LineCap for the same requirement and error contract.
+// LineJoinMiter uses Office's own default miter limit (800%, matching the
+// built-in theme's own line styles — see themeFmtScheme).
+func (sr *ShapeRef) LineJoin(style LineJoinStyle) *ShapeRef {
+	if sr.spPr.Ln == nil {
+		sr.pres.addErr(errors.InvalidArgument("LineJoin", "shape", "no outline",
+			"Border or BorderScheme must be called before LineJoin"))
+		return sr
+	}
+	sr.spPr.Ln.Round, sr.spPr.Ln.Bevel, sr.spPr.Ln.Miter = nil, nil, nil
+	switch style {
+	case LineJoinRound:
+		sr.spPr.Ln.Round = &drawingml.LnRound{}
+	case LineJoinBevel:
+		sr.spPr.Ln.Bevel = &drawingml.LnBevel{}
+	case LineJoinMiter:
+		sr.spPr.Ln.Miter = &drawingml.LnMiter{Lim: 800000}
+	default:
+		sr.pres.addErr(errors.InvalidArgument("LineJoin", "style", style, "not a valid line-join style"))
+	}
+	return sr
+}
+
+// ArrowStart sets an arrowhead (or other line-end decoration) at the
+// beginning of the shape's outline path — ArrowEnd is its counterpart at
+// the end. Only visible on an open shape's outline (e.g. ShapeLine) — a
+// closed autoshape's path has no defined start/end. Border or BorderScheme
+// must be called first — see LineCap for the same requirement and error
+// contract. Size uses Office's own default ("med") for both width and
+// length.
+func (sr *ShapeRef) ArrowStart(t ArrowheadType) *ShapeRef {
+	if sr.spPr.Ln == nil {
+		sr.pres.addErr(errors.InvalidArgument("ArrowStart", "shape", "no outline",
+			"Border or BorderScheme must be called before ArrowStart"))
+		return sr
+	}
+	sr.spPr.Ln.HeadEnd = &drawingml.LineEnd{Type: string(t), W: "med", Len: "med"}
+	return sr
+}
+
+// ArrowEnd is ArrowStart's counterpart for the end of the shape's outline
+// path.
+func (sr *ShapeRef) ArrowEnd(t ArrowheadType) *ShapeRef {
+	if sr.spPr.Ln == nil {
+		sr.pres.addErr(errors.InvalidArgument("ArrowEnd", "shape", "no outline",
+			"Border or BorderScheme must be called before ArrowEnd"))
+		return sr
+	}
+	sr.spPr.Ln.TailEnd = &drawingml.LineEnd{Type: string(t), W: "med", Len: "med"}
+	return sr
+}
+
+// Shadow adds a soft drop shadow behind the shape, using Office's own
+// built-in outer-shadow preset (see newOuterShdw). alphaPercent is the
+// shadow color's opacity, 0-100 (Office's own preset uses 63). An
+// out-of-range value is recorded as an error on the presentation (returned
+// by Save) and leaves the effect unset.
+func (sr *ShapeRef) Shadow(c drawingml.Color, alphaPercent float64) *ShapeRef {
+	shdw, ok := newOuterShdw(sr.pres, c, alphaPercent)
+	if !ok {
+		return sr
+	}
+	sr.effectLst().OuterShdw = shdw
+	return sr
+}
+
+// Glow adds a soft-edged color halo around the shape's own outline.
+// radiusPoints is the glow's radius, in points. A negative value is
+// recorded as an error on the presentation (returned by Save) and leaves
+// the effect unset.
+func (sr *ShapeRef) Glow(c drawingml.Color, radiusPoints float64) *ShapeRef {
+	glow, ok := newGlow(sr.pres, c, radiusPoints)
+	if !ok {
+		return sr
+	}
+	sr.effectLst().Glow = glow
+	return sr
+}
+
+// Reflection adds a mirror-image reflection beneath the shape, fading from
+// startOpacityPercent at the shape's own edge to fully transparent.
+// startOpacityPercent must be 0-100; an out-of-range value is recorded as
+// an error on the presentation (returned by Save) and leaves the effect
+// unset.
+//
+// SDK-valid and LibreOffice-opens, but LibreOffice does not render a:
+// reflection on an autoshape (confirmed with startOpacityPercent as high as
+// 80 — a blank render, not merely a subtle one, unlike Shadow/LineJoin's
+// own initially-subtle-looking results) — open in real PowerPoint to
+// confirm the reflection itself renders there.
+func (sr *ShapeRef) Reflection(startOpacityPercent float64) *ShapeRef {
+	refl, ok := newReflection(sr.pres, startOpacityPercent)
+	if !ok {
+		return sr
+	}
+	sr.effectLst().Reflection = refl
+	return sr
+}
+
+// SoftEdges fades the shape's own edges to transparent over the given
+// radius, in points. A negative radiusPoints is recorded as an error on the
+// presentation (returned by Save) and leaves the effect unset.
+func (sr *ShapeRef) SoftEdges(radiusPoints float64) *ShapeRef {
+	rad, ok := newSoftEdgeRad(sr.pres, radiusPoints)
+	if !ok {
+		return sr
+	}
+	sr.effectLst().SoftEdge = &drawingml.SoftEdge{Rad: rad}
+	return sr
+}
+
+// effectLst lazily allocates and returns the shape's a:effectLst.
+func (sr *ShapeRef) effectLst() *drawingml.EffectLst {
+	if sr.spPr.EffectLst == nil {
+		sr.spPr.EffectLst = &drawingml.EffectLst{}
+	}
+	return sr.spPr.EffectLst
+}
+
 // Rotation sets the shape's rotation, in degrees clockwise (e.g. 45, -90;
 // any value works, including beyond a full turn — 405 is the same
 // rotation as 45). AddShape and AddTextBox always give a shape its own
@@ -324,6 +465,74 @@ func validatedLineWidthEMU(pres *Presentation, widthPoints float64) (emu int, ok
 	return int(math.Round(widthPoints * drawingml.EMUsPerPoint)), true
 }
 
+// newOuterShdw builds Office's own default outer-shadow preset (see the
+// theme's own fmtScheme literal, themeFmtScheme) colored by c at the given
+// opacity, shared by ShapeRef.Shadow and PictureRef.Shadow. An out-of-range
+// alphaPercent is recorded as an error on pres and this returns ok=false,
+// leaving the caller's effect unset.
+func newOuterShdw(pres *Presentation, c drawingml.Color, alphaPercent float64) (*drawingml.OuterShdw, bool) {
+	if math.IsNaN(alphaPercent) || alphaPercent < 0 || alphaPercent > 100 {
+		pres.addErr(errors.InvalidArgument("Shadow", "alphaPercent", alphaPercent, "must be between 0 and 100"))
+		return nil, false
+	}
+	notRotating := drawingml.TriState(false)
+	return &drawingml.OuterShdw{
+		BlurRad:      57150, // 4.5pt, Office's own preset
+		Dist:         19050, // 1.5pt
+		Dir:          5400000,
+		Algn:         "ctr",
+		RotWithShape: &notRotating,
+		SrgbClr: &drawingml.SrgbClr{
+			Val:   drawingml.ToHex(c),
+			Alpha: &drawingml.Alpha{Val: int(math.Round(alphaPercent * 1000))},
+		},
+	}, true
+}
+
+// newGlow builds a:glow at the given radius (points, converted to EMUs),
+// shared by ShapeRef.Glow and PictureRef.Glow. A negative radiusPoints is
+// recorded as an error on pres and this returns ok=false, leaving the
+// caller's effect unset.
+func newGlow(pres *Presentation, c drawingml.Color, radiusPoints float64) (*drawingml.Glow, bool) {
+	if math.IsNaN(radiusPoints) || radiusPoints < 0 {
+		pres.addErr(errors.InvalidArgument("Glow", "radiusPoints", radiusPoints, "must be non-negative"))
+		return nil, false
+	}
+	return &drawingml.Glow{
+		Rad:     int(math.Round(radiusPoints * drawingml.EMUsPerPoint)),
+		SrgbClr: &drawingml.SrgbClr{Val: drawingml.ToHex(c)},
+	}, true
+}
+
+// newReflection builds a straight-down mirror reflection fading from
+// startOpacityPercent to fully transparent, shared by ShapeRef.Reflection
+// and PictureRef.Reflection. An out-of-range startOpacityPercent is
+// recorded as an error on pres and this returns ok=false, leaving the
+// caller's effect unset.
+func newReflection(pres *Presentation, startOpacityPercent float64) (*drawingml.Reflection, bool) {
+	if math.IsNaN(startOpacityPercent) || startOpacityPercent < 0 || startOpacityPercent > 100 {
+		pres.addErr(errors.InvalidArgument("Reflection", "startOpacityPercent", startOpacityPercent, "must be between 0 and 100"))
+		return nil, false
+	}
+	return &drawingml.Reflection{
+		BlurRad: 6350, // ~0.5pt, a "tight" reflection
+		StA:     int(math.Round(startOpacityPercent * 1000)),
+		EndPos:  100000,
+		Dir:     5400000, // straight down
+	}, true
+}
+
+// newSoftEdgeRad converts radiusPoints to EMUs for a:softEdge/@rad, shared
+// by ShapeRef.SoftEdges and PictureRef.SoftEdges. A negative radiusPoints
+// is recorded as an error on pres and this returns ok=false.
+func newSoftEdgeRad(pres *Presentation, radiusPoints float64) (rad int, ok bool) {
+	if math.IsNaN(radiusPoints) || radiusPoints < 0 {
+		pres.addErr(errors.InvalidArgument("SoftEdges", "radiusPoints", radiusPoints, "must be non-negative"))
+		return 0, false
+	}
+	return int(math.Round(radiusPoints * drawingml.EMUsPerPoint)), true
+}
+
 // newGradFill builds a linear a:gradFill from an angle in degrees clockwise
 // (the same convention as Rotation, converted to 60,000ths of a degree with
 // math.Round — truncating risks landing on the wrong 60,000th, the same
@@ -332,8 +541,8 @@ func validatedLineWidthEMU(pres *Presentation, widthPoints float64) (emu int, ok
 // ShapeRef.GradientFill and Slide.BackgroundGradient. Requires at least 2
 // stops (CT_GradientStopList's own schema minimum) and each stop's Pos
 // within [0, 100]; a finite-but-invalid angle, too few stops, or an
-// out-of-range stop is recorded as an error on pres and this returns
-// ok=false, leaving the caller's fill unset.
+// out-of-range stop, Tint, or Shade is recorded as an error on pres and
+// this returns ok=false, leaving the caller's fill unset.
 func newGradFill(pres *Presentation, angleDegrees float64, stops []GradientStop) (g *drawingml.GradFill, ok bool) {
 	if math.IsNaN(angleDegrees) || math.IsInf(angleDegrees, 0) {
 		pres.addErr(errors.InvalidArgument("GradientFill", "angleDegrees", angleDegrees, "must be a finite number"))
@@ -350,11 +559,17 @@ func newGradFill(pres *Presentation, angleDegrees float64, stops []GradientStop)
 			pres.addErr(errors.InvalidArgument("GradientFill", "stops[].Pos", s.Pos, "must be in [0, 100]"))
 			return nil, false
 		}
+		if math.IsNaN(s.Tint) || s.Tint < 0 || s.Tint > 100 || math.IsNaN(s.Shade) || s.Shade < 0 || s.Shade > 100 {
+			pres.addErr(errors.InvalidArgument("GradientFill", "stops[].Tint/Shade", []float64{s.Tint, s.Shade}, "must each be in [0, 100]"))
+			return nil, false
+		}
 		gs[i] = &drawingml.Gs{Pos: int(math.Round(s.Pos * 1000))}
 		if s.Scheme != "" {
 			gs[i].SchemeClr = &drawingml.SchemeClr{Val: string(s.Scheme)}
+			applyTintShade(&gs[i].SchemeClr.Tint, &gs[i].SchemeClr.Shade, s)
 		} else {
 			gs[i].SrgbClr = &drawingml.SrgbClr{Val: drawingml.ToHex(s.Color)}
+			applyTintShade(&gs[i].SrgbClr.Tint, &gs[i].SrgbClr.Shade, s)
 		}
 	}
 
@@ -381,6 +596,19 @@ func newGradFill(pres *Presentation, angleDegrees float64, stops []GradientStop)
 		GsLst:        &drawingml.GsLst{Gs: gs},
 		Lin:          &drawingml.Lin{Ang: ang},
 	}, true
+}
+
+// applyTintShade sets *tint/*shade from s's Tint/Shade percentages
+// (converted to thousandths of a percent), shared by newGradFill's RGB and
+// scheme-color branches — a stop's Tint/Shade applies identically to
+// either color choice.
+func applyTintShade(tint **drawingml.Tint, shade **drawingml.Shade, s GradientStop) {
+	if s.Tint > 0 {
+		*tint = &drawingml.Tint{Val: int(math.Round(s.Tint * 1000))}
+	}
+	if s.Shade > 0 {
+		*shade = &drawingml.Shade{Val: int(math.Round(s.Shade * 1000))}
+	}
 }
 
 // Paragraph is a handle onto a single a:p, returned by TextBox.AddParagraph.
