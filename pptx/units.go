@@ -140,10 +140,13 @@ type PlaceholderType string
 
 // Placeholder types.
 const (
-	PlaceholderTitle    PlaceholderType = "title"    // main slide title
-	PlaceholderCtrTitle PlaceholderType = "ctrTitle" // centered title (title-slide layout)
-	PlaceholderSubTitle PlaceholderType = "subTitle" // subtitle (title-slide layout)
-	PlaceholderBody     PlaceholderType = "body"     // bulleted body text
+	PlaceholderTitle       PlaceholderType = "title"    // main slide title
+	PlaceholderCtrTitle    PlaceholderType = "ctrTitle" // centered title (title-slide layout)
+	PlaceholderSubTitle    PlaceholderType = "subTitle" // subtitle (title-slide layout)
+	PlaceholderBody        PlaceholderType = "body"     // bulleted body text
+	PlaceholderDate        PlaceholderType = "dt"       // date, in the footer row (see Slide.DateText)
+	PlaceholderFooter      PlaceholderType = "ftr"      // footer text (see Slide.Footer)
+	PlaceholderSlideNumber PlaceholderType = "sldNum"   // slide-number field (see Slide.SlideNumber)
 )
 
 // GradientStop is one color stop within a linear gradient (see

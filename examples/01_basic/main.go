@@ -206,6 +206,11 @@ func main() {
 
 	s2.Notes("Close by assigning owners to each next step before the meeting ends.")
 
+	// Footer row: a literal date (bottom-left), footer text (bottom-center),
+	// and an auto-updating slide-number field (bottom-right). Each is a
+	// self-positioned placeholder, so it renders without a master hf entry.
+	s2.DateText("July 19, 2026").Footer("Acme — Confidential").SlideNumber()
+
 	f, err := os.Create("01_basic_demo.pptx")
 	if err != nil {
 		log.Fatal(err)
