@@ -72,6 +72,7 @@ const (
 	RelTypeImage              = NamespaceOfficeDocumentRels + "/image"
 	RelTypeHyperlink          = NamespaceOfficeDocumentRels + "/hyperlink"
 	RelTypeTheme              = NamespaceOfficeDocumentRels + "/theme"
+	RelTypeChart              = NamespaceOfficeDocumentRels + "/chart"
 	RelTypeCoreProperties     = "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties"
 	RelTypeExtendedProperties = NamespaceOfficeDocumentRels + "/extended-properties"
 )
@@ -83,6 +84,7 @@ const (
 	ContentTypeCoreProperties     = "application/vnd.openxmlformats-package.core-properties+xml"
 	ContentTypeExtendedProperties = "application/vnd.openxmlformats-officedocument.extended-properties+xml"
 	ContentTypeTheme              = "application/vnd.openxmlformats-officedocument.theme+xml"
+	ContentTypeChart              = "application/vnd.openxmlformats-officedocument.drawingml.chart+xml"
 
 	ContentTypePNG  = "image/png"
 	ContentTypeJPEG = "image/jpeg"
