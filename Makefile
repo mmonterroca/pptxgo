@@ -5,6 +5,7 @@ COVERAGE_PROFILE ?= coverage.out
 COVERAGE_HTML ?= coverage.html
 DEMO_PPTX ?= examples/01_basic/01_basic_demo.pptx
 DEMO_READ_PPTX ?= examples/02_read_and_modify/02_read_and_modify_out.pptx
+DEMO_CHARTS_PPTX ?= examples/03_charts_demo/03_charts_demo.pptx
 
 .PHONY: help test build coverage dotnet-build examples validate check clean
 
@@ -27,6 +28,7 @@ dotnet-build: ## Build the Open XML validator
 examples: ## Run example programs
 	cd examples/01_basic && go run main.go
 	cd examples/02_read_and_modify && go run main.go
+	cd examples/03_charts_demo && go run main.go
 
 # Validation is not optional CI polish here: docxgo shipped nine months
 # with a working OpenXmlValidator that CI never invoked. pptxgo runs it on
@@ -38,8 +40,9 @@ examples: ## Run example programs
 validate: examples dotnet-build ## Generate demo .pptx files and validate them against the OpenXML SDK
 	dotnet $(DOTNET_ARTIFACTS)/bin/PptxValidator/debug/PptxValidator.dll $(DEMO_PPTX)
 	dotnet $(DOTNET_ARTIFACTS)/bin/PptxValidator/debug/PptxValidator.dll $(DEMO_READ_PPTX)
+	dotnet $(DOTNET_ARTIFACTS)/bin/PptxValidator/debug/PptxValidator.dll $(DEMO_CHARTS_PPTX)
 
 check: test build validate ## Run the full validation suite (tests, build, schema validation)
 
 clean: ## Remove local build, coverage, and demo artifacts
-	rm -rf $(COVERAGE_PROFILE) $(COVERAGE_HTML) $(DEMO_PPTX) $(DEMO_READ_PPTX)
+	rm -rf $(COVERAGE_PROFILE) $(COVERAGE_HTML) $(DEMO_PPTX) $(DEMO_READ_PPTX) $(DEMO_CHARTS_PPTX)

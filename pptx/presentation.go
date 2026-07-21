@@ -70,6 +70,7 @@ type Presentation struct {
 	pres               *XMLPresentation
 	presRels           *opc.RelationshipManager
 	slideCount         int
+	chartCount         int
 	errs               []error
 	mediaByHash        map[[sha256.Size]byte]string // content hash -> already-embedded media part's ppt/media/ basename; see mediaBasename
 	layoutIndexByType  map[LayoutType]int           // LayoutType -> its 1-indexed slideLayoutN.xml part, for AddSlide's WithLayout
