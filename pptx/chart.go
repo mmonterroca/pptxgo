@@ -44,13 +44,21 @@ const (
 	ChartTypeDoughnut ChartType = "doughnut"
 )
 
+// ChartGraphic represents the c:chart element embedded within a:graphicData.
+type ChartGraphic struct {
+	XMLName xml.Name `xml:"c:chart"`
+	XmlnsC  string   `xml:"xmlns:c,attr"`
+	XmlnsR  string   `xml:"xmlns:r,attr"`
+	RId     string   `xml:"r:id,attr"`
+}
+
 // ChartBuilder is a handle onto a chart placed via Slide.AddChart.
 type ChartBuilder struct {
-	pres       *Presentation
-	chartSpace *chart.ChartSpace
-	chart      *chart.Chart
-	chartType  ChartType
-	series     []*chart.Ser
+	pres        *Presentation
+	chartSpace  *chart.ChartSpace
+	chart       *chart.Chart
+	chartType   ChartType
+	seriesCount uint
 }
 
 // SeriesBuilder is a handle to a chart series to configure its properties.
@@ -61,7 +69,26 @@ type SeriesBuilder struct {
 
 // AddSeries adds a new data series to the chart.
 func (cb *ChartBuilder) AddSeries(name string, categories []string, values []float64) *SeriesBuilder {
-	idx := uint(len(cb.series))
+	if len(categories) != len(values) {
+		cb.pres.addErr(fmt.Errorf("AddSeries: categories count (%d) does not match values count (%d)", len(categories), len(values)))
+		return &SeriesBuilder{cb: cb, ser: &chart.Ser{}}
+	}
+	if len(categories) == 0 {
+		cb.pres.addErr(fmt.Errorf("AddSeries: categories and values cannot be empty"))
+		return &SeriesBuilder{cb: cb, ser: &chart.Ser{}}
+	}
+
+	idx := cb.seriesCount
+	cb.seriesCount++
+	colStr := ""
+	n := int(idx) + 1
+	for n >= 0 {
+		colStr = string(rune('A'+(n%26))) + colStr
+		if n < 26 {
+			break
+		}
+		n = (n / 26) - 1
+	}
 	
 	ser := &chart.Ser{
 		Idx:   &chart.UnsignedInt{Val: idx},
@@ -71,7 +98,7 @@ func (cb *ChartBuilder) AddSeries(name string, categories []string, values []flo
 	if name != "" {
 		ser.Tx = &chart.Tx{
 			StrRef: &chart.StrRef{
-				F: "Sheet1!$B$1", // Dummy formula since we are read-only MVP
+				F: "Sheet1!$" + colStr + "$1", // Dummy formula since we are read-only MVP
 				StrCache: &chart.StrCache{
 					PtCount: &chart.UnsignedInt{Val: 1},
 					Pt: []*chart.PtStr{
@@ -110,48 +137,32 @@ func (cb *ChartBuilder) AddSeries(name string, categories []string, values []flo
 		}
 		ser.Val = &chart.Val{
 			NumRef: &chart.NumRef{
-				F: "Sheet1!$B$2:$B$" + strconv.Itoa(len(values)+1),
+				F: "Sheet1!$" + colStr + "$2:$" + colStr + "$" + strconv.Itoa(len(values)+1),
 				NumCache: numCache,
 			},
 		}
 	}
 	
-	cb.series = append(cb.series, ser)
-	
 	// Inject series into the correct chart element
 	switch cb.chartType {
 	case ChartTypeBar:
-		if cb.chart.PlotArea.BarChart == nil {
-			cb.chart.PlotArea.BarChart = &chart.BarChart{
-				BarDir: &chart.StringVal{Val: "col"},
-				Grouping: &chart.StringVal{Val: "clustered"},
-				AxId: []*chart.UnsignedInt{{Val: 1}, {Val: 2}},
-			}
+		if cb.chart.PlotArea.BarChart != nil {
+			cb.chart.PlotArea.BarChart.Ser = append(cb.chart.PlotArea.BarChart.Ser, ser)
 		}
-		cb.chart.PlotArea.BarChart.Ser = append(cb.chart.PlotArea.BarChart.Ser, ser)
 	case ChartTypeLine:
-		if cb.chart.PlotArea.LineChart == nil {
-			cb.chart.PlotArea.LineChart = &chart.LineChart{
-				Grouping: &chart.StringVal{Val: "standard"},
-				AxId: []*chart.UnsignedInt{{Val: 1}, {Val: 2}},
-			}
+		if cb.chart.PlotArea.LineChart != nil {
+			cb.chart.PlotArea.LineChart.Ser = append(cb.chart.PlotArea.LineChart.Ser, ser)
 		}
-		cb.chart.PlotArea.LineChart.Ser = append(cb.chart.PlotArea.LineChart.Ser, ser)
 	case ChartTypePie:
-		if cb.chart.PlotArea.PieChart == nil {
-			cb.chart.PlotArea.PieChart = &chart.PieChart{
-				VaryColors: &chart.Boolean{Val: 1},
-			}
+		if cb.chart.PlotArea.PieChart != nil {
+			cb.chart.PlotArea.PieChart.Ser = append(cb.chart.PlotArea.PieChart.Ser, ser)
 		}
-		cb.chart.PlotArea.PieChart.Ser = append(cb.chart.PlotArea.PieChart.Ser, ser)
 	case ChartTypeDoughnut:
-		if cb.chart.PlotArea.DoughnutChart == nil {
-			cb.chart.PlotArea.DoughnutChart = &chart.DoughnutChart{
-				VaryColors: &chart.Boolean{Val: 1},
-				HoleSize:   &chart.UnsignedInt{Val: 50}, // default 50%
-			}
+		if cb.chart.PlotArea.DoughnutChart != nil {
+			cb.chart.PlotArea.DoughnutChart.Ser = append(cb.chart.PlotArea.DoughnutChart.Ser, ser)
 		}
-		cb.chart.PlotArea.DoughnutChart.Ser = append(cb.chart.PlotArea.DoughnutChart.Ser, ser)
+	default:
+		cb.pres.addErr(fmt.Errorf("AddSeries: unknown chart type %q", cb.chartType))
 	}
 	
 	return &SeriesBuilder{cb: cb, ser: ser}
@@ -159,6 +170,12 @@ func (cb *ChartBuilder) AddSeries(name string, categories []string, values []flo
 
 // Color sets a custom solid fill color (hex format, e.g., "FF0000") for the series.
 func (sb *SeriesBuilder) Color(hex string) *SeriesBuilder {
+	colorVal, err := drawingml.FromHex(hex)
+	if err != nil {
+		sb.cb.pres.addErr(fmt.Errorf("Color: %v", err))
+		return sb
+	}
+	hexVal := drawingml.ToHex(colorVal)
 	if sb.ser.SpPr == nil {
 		sb.ser.SpPr = &chart.SpPr{}
 	}
@@ -176,7 +193,7 @@ func (sb *SeriesBuilder) Color(hex string) *SeriesBuilder {
 		SrgbClr: &struct {
 			XMLName xml.Name `xml:"a:srgbClr"`
 			Val     string   `xml:"val,attr"`
-		}{Val: hex},
+		}{Val: hexVal},
 	}
 	return sb
 }
@@ -221,6 +238,17 @@ func (cb *ChartBuilder) Title(title string) *ChartBuilder {
 
 // HasLegend enables the chart legend at the specified position (e.g., "b" for bottom, "r" for right).
 func (cb *ChartBuilder) HasLegend(pos string) *ChartBuilder {
+	valid := false
+	for _, p := range []string{"b", "tr", "l", "r", "t"} {
+		if pos == p {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		cb.pres.addErr(fmt.Errorf("HasLegend: invalid position %q", pos))
+		return cb
+	}
 	cb.chart.Legend = &chart.Legend{
 		LegendPos: &chart.StringVal{Val: pos},
 		Overlay:   &chart.Boolean{Val: 0},
@@ -264,16 +292,45 @@ func (cb *ChartBuilder) AxisTitles(catTitle, valTitle string) *ChartBuilder {
 
 // SetBarDirection sets the direction of a bar chart ("col" for vertical, "bar" for horizontal).
 func (cb *ChartBuilder) SetBarDirection(dir string) *ChartBuilder {
+	if dir != "bar" && dir != "col" {
+		cb.pres.addErr(fmt.Errorf("SetBarDirection: invalid direction %q", dir))
+		return cb
+	}
 	if cb.chart.PlotArea.BarChart != nil {
 		cb.chart.PlotArea.BarChart.BarDir.Val = dir
+		if len(cb.chart.PlotArea.CatAx) > 0 && len(cb.chart.PlotArea.ValAx) > 0 {
+			if dir == "bar" {
+				cb.chart.PlotArea.CatAx[0].AxPos.Val = "l"
+				cb.chart.PlotArea.ValAx[0].AxPos.Val = "b"
+			} else {
+				cb.chart.PlotArea.CatAx[0].AxPos.Val = "b"
+				cb.chart.PlotArea.ValAx[0].AxPos.Val = "l"
+			}
+		}
 	}
 	return cb
 }
 
 // SetGrouping sets the grouping of a bar/line chart ("clustered", "stacked", "percentStacked", "standard").
 func (cb *ChartBuilder) SetGrouping(grouping string) *ChartBuilder {
+	valid := false
+	for _, g := range []string{"clustered", "stacked", "percentStacked", "standard"} {
+		if grouping == g {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		cb.pres.addErr(fmt.Errorf("SetGrouping: invalid grouping %q", grouping))
+		return cb
+	}
 	if cb.chart.PlotArea.BarChart != nil {
 		cb.chart.PlotArea.BarChart.Grouping.Val = grouping
+		if grouping == "stacked" || grouping == "percentStacked" {
+			cb.chart.PlotArea.BarChart.Overlap = &chart.Overlap{Val: 100}
+		} else {
+			cb.chart.PlotArea.BarChart.Overlap = nil
+		}
 	}
 	if cb.chart.PlotArea.LineChart != nil {
 		cb.chart.PlotArea.LineChart.Grouping.Val = grouping
@@ -300,7 +357,7 @@ func (s *Slide) AddChart(chartType ChartType, x, y, w, h int) *ChartBuilder {
 	chartSpace := &chart.ChartSpace{
 		XmlnsC: chart.NamespaceMain,
 		XmlnsA: drawingml.NamespaceMain,
-		XmlnsR: chart.NamespaceR,
+		XmlnsR: drawingml.NamespaceRelationships,
 		Date1904: &chart.Boolean{Val: 0},
 		Chart: &chart.Chart{
 			AutoTitle: &chart.Boolean{Val: 0},
@@ -335,8 +392,32 @@ func (s *Slide) AddChart(chartType ChartType, x, y, w, h int) *ChartBuilder {
 				Delete: &chart.Boolean{Val: 0},
 				AxPos: &chart.StringVal{Val: "l"}, // left
 				CrossAx: &chart.UnsignedInt{Val: 1},
+				TickLblPos: &chart.StringVal{Val: "nextTo"},
 				MajorGridlines: &struct{}{},
 			},
+		}
+	}
+	
+	switch chartType {
+	case ChartTypeBar:
+		chartSpace.Chart.PlotArea.BarChart = &chart.BarChart{
+			BarDir: &chart.StringVal{Val: "col"},
+			Grouping: &chart.StringVal{Val: "clustered"},
+			AxId: []*chart.UnsignedInt{{Val: 1}, {Val: 2}},
+		}
+	case ChartTypeLine:
+		chartSpace.Chart.PlotArea.LineChart = &chart.LineChart{
+			Grouping: &chart.StringVal{Val: "standard"},
+			AxId: []*chart.UnsignedInt{{Val: 1}, {Val: 2}},
+		}
+	case ChartTypePie:
+		chartSpace.Chart.PlotArea.PieChart = &chart.PieChart{
+			VaryColors: &chart.Boolean{Val: 1},
+		}
+	case ChartTypeDoughnut:
+		chartSpace.Chart.PlotArea.DoughnutChart = &chart.DoughnutChart{
+			VaryColors: &chart.Boolean{Val: 1},
+			HoleSize:   &chart.UnsignedInt{Val: 50}, // default 50%
 		}
 	}
 	
@@ -346,7 +427,7 @@ func (s *Slide) AddChart(chartType ChartType, x, y, w, h int) *ChartBuilder {
 	// Add relationship from slide to chart part
 	rId, err := s.pres.pkg.Relationships(s.path).Add(opc.RelTypeChart, "../charts/"+chartPartName, "Internal")
 	if err != nil {
-		s.pres.errs = append(s.pres.errs, err)
+		s.pres.addErr(err)
 	}
 	
 	id := s.allocID()
@@ -355,7 +436,7 @@ func (s *Slide) AddChart(chartType ChartType, x, y, w, h int) *ChartBuilder {
 	cChart := &ChartGraphic{
 		XMLName: xml.Name{Local: "c:chart"},
 		XmlnsC:  chart.NamespaceMain,
-		XmlnsR:  chart.NamespaceR,
+		XmlnsR:  drawingml.NamespaceRelationships,
 		RId:     rId,
 	}
 	
@@ -385,10 +466,3 @@ func (s *Slide) AddChart(chartType ChartType, x, y, w, h int) *ChartBuilder {
 	}
 }
 
-// ChartGraphic represents the c:chart element embedded within a:graphicData.
-type ChartGraphic struct {
-	XMLName xml.Name `xml:"c:chart"`
-	XmlnsC  string   `xml:"xmlns:c,attr"`
-	XmlnsR  string   `xml:"xmlns:r,attr"`
-	RId     string   `xml:"r:id,attr"`
-}

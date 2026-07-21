@@ -12,10 +12,9 @@ in place; `pptx.New()` builds a presentation's theme, slide master, and
 slide layout. `AddSlide` adds slides; `AddTextBox`/`AddParagraph` add
 formatted text; `AddImage` and its variants embed PNG/JPEG/GIF images
 (`p:pic`, with automatic format and size detection); `AddChart` builds native
-Bar, Line, Pie, and Doughnut charts with fully editable Excel data caches;
-tables, gradients, dashed lines, and multi-level bullets are all supported
-— all verified against both the Open XML SDK's schema validator and
-LibreOffice Impress (see Verification below). `pptx.Open`/`OpenFromBytes`/`OpenFromReader`
+Bar, Line, Pie, and Doughnut charts; tables, gradients, dashed lines, and
+multi-level bullets are all supported — all verified against both the Open
+XML SDK's schema validator and LibreOffice Impress (see Verification below). `pptx.Open`/`OpenFromBytes`/`OpenFromReader`
 open an existing `.pptx` for template-style editing — enumerate slides,
 inspect or `Merge`/`Replace` their text — with every untouched part
 preserved byte-for-byte (see `examples/02_read_and_modify`).

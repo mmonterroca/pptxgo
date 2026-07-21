@@ -27,10 +27,8 @@ package chart
 
 import "encoding/xml"
 
-// NamespaceMain is the DrawingML Chart namespace URI ("c:").
 const NamespaceMain = "http://schemas.openxmlformats.org/drawingml/2006/chart"
 const NamespaceA = "http://schemas.openxmlformats.org/drawingml/2006/main"
-const NamespaceR = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
 // ChartSpace is the root element of a chart part (c:chartSpace).
 type ChartSpace struct {
@@ -94,7 +92,14 @@ type BarChart struct {
 	BarDir   *StringVal `xml:"c:barDir"` // "bar" or "col"
 	Grouping *StringVal `xml:"c:grouping,omitempty"` // "clustered", "stacked", etc.
 	Ser      []*Ser   `xml:"c:ser"`
+	Overlap  *Overlap `xml:"c:overlap,omitempty"`
 	AxId     []*UnsignedInt `xml:"c:axId"`
+}
+
+// Overlap is c:overlap.
+type Overlap struct {
+	XMLName xml.Name `xml:"c:overlap"`
+	Val     int8     `xml:"val,attr"`
 }
 
 // LineChart is c:lineChart.
@@ -223,19 +228,19 @@ type PtNum struct {
 
 // Boolean is a wrapper for c:val="1" or c:val="0".
 type Boolean struct {
-	XMLName xml.Name `xml:""`
+	XMLName xml.Name
 	Val     uint     `xml:"val,attr"` // usually 0 or 1
 }
 
 // StringVal is a wrapper for c:val="string".
 type StringVal struct {
-	XMLName xml.Name `xml:""`
+	XMLName xml.Name
 	Val     string   `xml:"val,attr"`
 }
 
 // UnsignedInt is a wrapper for c:val="uint".
 type UnsignedInt struct {
-	XMLName xml.Name `xml:""`
+	XMLName xml.Name
 	Val     uint     `xml:"val,attr"`
 }
 
@@ -260,6 +265,7 @@ type ValAx struct {
 	AxPos   *StringVal `xml:"c:axPos"`
 	MajorGridlines *struct{} `xml:"c:majorGridlines,omitempty"`
 	Title   *Title   `xml:"c:title,omitempty"`
+	TickLblPos *StringVal `xml:"c:tickLblPos,omitempty"`
 	CrossAx *UnsignedInt `xml:"c:crossAx"`
 }
 
